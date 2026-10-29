@@ -1,7 +1,5 @@
 # Friendly Harness
 
-_A harness for your anxious digital brain._
-
 A portable [pi](https://github.com/earendil-works/pi-coding-agent) workspace:
 skills, extensions, subagents, launchers, and a project layout that keeps your
 repos where they already live. The agent is named **friendlai**.
