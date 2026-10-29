@@ -1,0 +1,92 @@
+#!/usr/bin/env bash
+root="$(cd "$(dirname "$0")/.." && pwd)"
+export PI_CODING_AGENT_DIR="$root/.pi/agent"
+
+# Local vision server for describe-image: free/offline GPU vision via Ollama.
+# The describe-image extension reads these and stays dormant without the model.
+export FPI_VISION_MODEL="${FPI_VISION_MODEL:-qwen2.5vl:3b}"
+export FPI_VISION_URL="${FPI_VISION_URL:-http://127.0.0.1:8080/v1/chat/completions}"
+
+# The harness keeps pi state in $root/.pi/agent. A ~/.pi directory is normal
+# for a regular pi install and is harmless here because PI_CODING_AGENT_DIR
+# overrides it. Set FPI_STRICT_PI_HOME=1 if you want an existing ~/.pi to be
+# treated as an error.
+if [[ -e "$HOME/.pi" ]]; then
+  if [[ -n "${FPI_STRICT_PI_HOME:-}" ]]; then
+    echo "~/.pi exists and FPI_STRICT_PI_HOME is set." >&2
+    echo "Inspect it (ls -la ~/.pi), fold anything unique into $root, then delete it." >&2
+    exit 1
+  fi
+  echo "Note: keeping pi state in $root/.pi/agent; ~/.pi is ignored." >&2
+fi
+
+node_ok() {
+  local ver major minor
+  ver="$("$1" -v 2>/dev/null)" || return 1
+  ver="${ver#v}"
+  IFS=. read -r major minor _ <<< "$ver"
+  (( major > 22 )) && return 0
+  (( major == 22 && minor >= 19 )) && return 0
+  return 1
+}
+
+best_node=""
+
+consider_node() {
+  [[ -n "$1" && -x "$1" ]] || return
+  node_ok "$1" && best_node="$1"
+}
+
+consider_node "$(command -v node 2>/dev/null)"
+
+if [[ -z "$best_node" ]]; then
+  export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
+  for nvm_sh in "$NVM_DIR/nvm.sh" "$(brew --prefix nvm 2>/dev/null)/nvm.sh"; do
+    [[ -s "$nvm_sh" ]] || continue
+    # shellcheck source=/dev/null
+    . "$nvm_sh"
+    consider_node "$(command -v node 2>/dev/null)"
+    [[ -n "$best_node" ]] && break
+  done
+fi
+
+if [[ -z "$best_node" ]]; then
+  for candidate in $(ls -1d "$HOME"/.nvm/versions/node/v*/bin/node 2>/dev/null | sort -Vr); do
+    consider_node "$candidate"
+    [[ -n "$best_node" ]] && break
+  done
+fi
+
+if [[ -z "$best_node" ]]; then
+  echo "pi needs Node >= 22.19 (current: $(node -v 2>/dev/null || echo missing))" >&2
+  echo "Fix: nvm install 24 && nvm use 24" >&2
+  exit 1
+fi
+
+export PATH="$(dirname "$best_node"):$PATH"
+
+# Run pi via npx - no local or global install required. First run fetches pi
+# into the npx cache (~/.npm/_npx); later runs are fast and offline.
+# Load skills from the real repo skills/ dir directly - no symlink under .pi/agent.
+# --skill with a directory loads every skill inside it. Only add it for session
+# runs; management subcommands (install/remove/update/list/config/auth) and
+# informational flags don't accept --skill.
+load_skills=1
+# Subcommands are only valid in first position - matching them anywhere else
+# silently dropped every skill whenever a prompt word happened to be "update",
+# "list", "config", etc.
+case "${1:-}" in
+  install|remove|uninstall|update|list|config|auth) load_skills=0 ;;
+esac
+# Informational flags can appear anywhere.
+for a in "$@"; do
+  case "$a" in
+    --help|-h|--version|-v|--list-models) load_skills=0 ;;
+  esac
+  [[ "$load_skills" == 0 ]] && break
+done
+if [[ "$load_skills" == 1 ]]; then
+  set -- "$@" --skill "$root/skills"
+fi
+
+exec npx --yes @earendil-works/pi-coding-agent "$@"

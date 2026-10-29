@@ -1,0 +1,29 @@
+{
+  "lastChangelogVersion": "1.4.0",
+  "defaultProvider": "openrouter",
+  "defaultModel": "deepseek/deepseek-v4.1-flash-1017",
+  "defaultThinkingLevel": "high",
+  "packages": [
+    "npm:pi-mono-btw",
+    "npm:pi-mono-auto-fix",
+    "npm:pi-mono-ask-user-question",
+    "npm:pi-mono-loop",
+    "npm:pi-mono-usage",
+    "npm:pi-rewind-hook",
+    "npm:pi-autoresearch",
+    "npm:pi-mcp-adapter",
+    "npm:pi-subagents-j0k3r"
+  ],
+  "extensions": ["-builtin:mcp"],
+  "enabledModels": [
+    "openrouter/openrouter/free",
+    "openrouter/z-ai/glm-5.2",
+    "openrouter/thinkingmachines/inkling",
+    "openrouter/moonshotai/kimi-k3",
+    "openrouter/deepseek/deepseek-v4.1-flash-1017",
+    "openai-codex/gpt-5.6-terra",
+    "openai-codex/gpt-6.1-sol",
+    "openai-codex/gpt-6-luna"
+  ],
+  "theme": "dark"
+}

@@ -1,0 +1,6 @@
+# One absolute path per line. Copy this file to raindrop-files.txt and edit.
+# The vault skill uses it only for the one-shot clean-raindrop.py migration.
+#
+# Example:
+# /home/you/Anotht/Clippings/Some saved article.md
+# /home/you/Anotht/Clippings/Another saved article.md

@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Legacy shim for Friendly Harness worktree sessions.
+# Under the unified launcher this is: fpi --worktree PROJECT TASK [-- pi opts]
+
+HARNESS_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+exec "$HARNESS_DIR/bin/fpi" --worktree "$@"

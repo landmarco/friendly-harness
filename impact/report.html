@@ -1,0 +1,2074 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Friendly Harness - Impact Dashboard</title>
+    <script src="/vendor/d3.min.js"></script>
+    <script src="/vendor/d3-sankey.min.js"></script>
+    <style>
+      :root {
+        --bg: #0a0a0d;
+        --panel: #111116;
+        --panel2: #181820;
+        --border: #26262f;
+        --border-strong: #33333e;
+        --text: #ececf1;
+        --dim: #9a9aa6;
+        --faint: #5e5e6b;
+        --accent: #6ea8ff;
+        --accent-dim: rgba(110, 168, 255, 0.14);
+        --carbon: #ff9e64;
+        --water: #5fd9c9;
+        --kwh: #e3c56c;
+        --cost: #9fe07a;
+        --game: #cd9dff;
+        --warn: #ff6b6b;
+        --mono: ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas,
+          monospace;
+        --sans: system-ui, -apple-system, "Segoe UI", sans-serif;
+      }
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+      html {
+        scrollbar-color: var(--border-strong) var(--bg);
+      }
+      body {
+        background: radial-gradient(
+            1200px 500px at 20% -10%,
+            rgba(110, 168, 255, 0.06),
+            transparent 60%
+          ),
+          var(--bg);
+        color: var(--text);
+        font: 14px/1.55 var(--sans);
+        padding: 0 28px 40px;
+        min-height: 100vh;
+      }
+      ::selection {
+        background: var(--accent-dim);
+      }
+
+      /* ---- top bar ---- */
+      .topbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 18px 0 14px;
+        margin-bottom: 6px;
+        border-bottom: 1px solid var(--border);
+        position: sticky;
+        top: 0;
+        z-index: 20;
+        background: linear-gradient(
+          to bottom,
+          rgba(10, 10, 13, 0.92),
+          rgba(10, 10, 13, 0.75)
+        );
+        backdrop-filter: blur(8px);
+      }
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-size: 15px;
+        font-weight: 650;
+        letter-spacing: 0.01em;
+      }
+      .brand .dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--accent);
+        box-shadow: 0 0 10px var(--accent);
+      }
+      .brand .sub {
+        color: var(--dim);
+        font-weight: 500;
+      }
+      .topbar .meta {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        font-size: 12px;
+        color: var(--faint);
+      }
+      .topbar .meta .live {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .topbar .meta .live::before {
+        content: "";
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--cost);
+        animation: pulse 2.2s ease-in-out infinite;
+      }
+      @keyframes pulse {
+        0%,
+        100% {
+          opacity: 1;
+        }
+        50% {
+          opacity: 0.35;
+        }
+      }
+      .mono {
+        font-family: var(--mono);
+        font-variant-numeric: tabular-nums;
+      }
+
+      /* ---- tabs ---- */
+      .tabs {
+        display: inline-flex;
+        gap: 2px;
+        margin: 16px 0 18px;
+        padding: 3px;
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 9px;
+      }
+      .tab {
+        background: transparent;
+        border: 0;
+        color: var(--dim);
+        padding: 5px 15px;
+        border-radius: 6px;
+        cursor: pointer;
+        font-size: 13px;
+        font-family: var(--sans);
+        transition: background 0.15s ease, color 0.15s ease;
+      }
+      .tab:hover {
+        color: var(--text);
+      }
+      .tab.active {
+        color: var(--text);
+        background: var(--accent-dim);
+      }
+
+      .metric-tabs {
+        margin-left: 12px;
+        display: inline-flex;
+        gap: 2px;
+        vertical-align: middle;
+        padding: 2px;
+        background: var(--panel2);
+        border: 1px solid var(--border);
+        border-radius: 7px;
+      }
+      .mbtn {
+        background: transparent;
+        border: 0;
+        color: var(--faint);
+        padding: 2px 11px;
+        border-radius: 5px;
+        cursor: pointer;
+        font-size: 12px;
+        font-family: var(--mono);
+        transition: all 0.15s ease;
+      }
+      .mbtn:hover {
+        color: var(--text);
+      }
+      .mbtn.active {
+        color: var(--text);
+        background: var(--accent-dim);
+      }
+
+      /* ---- cards ---- */
+      .grid {
+        display: grid;
+        gap: 12px;
+      }
+      .cards {
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        margin-bottom: 12px;
+      }
+      .card {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 14px 16px 12px;
+        transition: border-color 0.15s ease, transform 0.15s ease;
+      }
+      .card:hover {
+        border-color: var(--border-strong);
+        transform: translateY(-1px);
+      }
+      .card .label {
+        color: var(--dim);
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        font-weight: 550;
+        margin-bottom: 6px;
+      }
+      .card .value {
+        font-size: 24px;
+        font-weight: 600;
+        font-family: var(--mono);
+        font-variant-numeric: tabular-nums;
+        line-height: 1.2;
+      }
+      .card .range {
+        color: var(--faint);
+        font-size: 11px;
+        font-family: var(--mono);
+        margin-top: 3px;
+      }
+      .card .spark {
+        margin-top: 8px;
+      }
+
+      /* ---- panels ---- */
+      .panel {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 16px 18px;
+        margin-bottom: 12px;
+      }
+      .panel h2 {
+        font-size: 13px;
+        font-weight: 600;
+        letter-spacing: 0.02em;
+        margin-bottom: 12px;
+        color: var(--text);
+      }
+      .panel h2.caps {
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+      }
+      .panel .hint {
+        color: var(--faint);
+        font-size: 12px;
+        margin-top: 10px;
+      }
+
+      /* ---- equivalents / games ---- */
+      .eq-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        padding: 8px 0;
+        border-bottom: 1px solid var(--border);
+      }
+      .eq-row:last-child {
+        border-bottom: 0;
+      }
+      .eq-val {
+        font-size: 16px;
+        font-weight: 600;
+        font-family: var(--mono);
+      }
+      .panel-divider {
+        border-bottom: 1px solid var(--border);
+        margin: 14px 0 12px;
+      }
+      .split {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 20px;
+        margin-top: 12px;
+      }
+      @media (max-width: 900px) {
+        .split {
+          grid-template-columns: 1fr;
+        }
+      }
+      .subhead {
+        font-size: 11px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        color: var(--dim);
+        margin: 0 0 10px;
+      }
+      .flow-label {
+        font-family: var(--sans);
+        font-weight: 550;
+      }
+      .flow-name {
+        font-family: var(--sans);
+        font-size: 13px;
+        font-weight: 600;
+      }
+      .eq-unit {
+        color: var(--faint);
+        font-size: 12px;
+        margin-left: 8px;
+      }
+      .eq-domain {
+        color: var(--faint);
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        margin-right: 10px;
+        font-family: var(--mono);
+      }
+      .game-big {
+        font-size: 30px;
+        font-weight: 650;
+        font-family: var(--mono);
+        font-variant-numeric: tabular-nums;
+      }
+
+      /* ---- charts ---- */
+      svg {
+        display: block;
+      }
+      svg text {
+        fill: var(--faint);
+        font-size: 11px;
+        font-family: var(--mono);
+        font-variant-numeric: tabular-nums;
+      }
+      svg .axis path,
+      svg .axis line {
+        stroke: var(--border);
+      }
+      svg .axis-title {
+        fill: var(--dim);
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+      }
+      svg .axis .tick line {
+        stroke: var(--border);
+      }
+      .legend {
+        display: flex;
+        gap: 14px;
+        flex-wrap: wrap;
+        margin-top: 8px;
+        font-size: 12px;
+        color: var(--dim);
+      }
+      .legend span::before {
+        content: "";
+        display: inline-block;
+        width: 10px;
+        height: 10px;
+        border-radius: 2px;
+        margin-right: 5px;
+      }
+
+      /* ---- tooltip ---- */
+      .tooltip {
+        position: absolute;
+        background: var(--panel2);
+        border: 1px solid var(--border-strong);
+        border-radius: 8px;
+        padding: 9px 12px;
+        font-size: 12px;
+        pointer-events: none;
+        opacity: 0;
+        transition: opacity 0.1s ease;
+        z-index: 30;
+        max-width: 340px;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+        font-family: var(--mono);
+        font-variant-numeric: tabular-nums;
+      }
+      .tooltip .tt-title {
+        font-family: var(--sans);
+        font-weight: 600;
+        color: var(--text);
+        margin-bottom: 4px;
+      }
+      .tooltip .tt-row {
+        display: flex;
+        justify-content: space-between;
+        gap: 18px;
+      }
+      .tooltip .tt-row em {
+        font-style: normal;
+        color: var(--faint);
+      }
+      .tooltip .tt-row b {
+        font-weight: 600;
+      }
+
+      /* ---- assumptions forms ---- */
+      table.assumptions {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 13px;
+      }
+      table.assumptions td,
+      table.assumptions th {
+        padding: 8px 10px;
+        border-bottom: 1px solid var(--border);
+        text-align: left;
+        vertical-align: top;
+      }
+      table.assumptions th {
+        color: var(--dim);
+        font-weight: 550;
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+      }
+      input[type="text"],
+      input[type="number"],
+      select {
+        background: var(--bg);
+        color: var(--text);
+        border: 1px solid var(--border-strong);
+        border-radius: 7px;
+        padding: 5px 9px;
+        font-size: 13px;
+        width: 100%;
+        font-family: var(--mono);
+        font-variant-numeric: tabular-nums;
+        transition: border-color 0.15s ease;
+      }
+      input:focus,
+      select:focus {
+        outline: none;
+        border-color: var(--accent);
+        box-shadow: 0 0 0 3px var(--accent-dim);
+      }
+      .rangebar {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 10px 14px;
+        flex-wrap: wrap;
+      }
+      .rangebar .lbl {
+        color: var(--dim);
+        font-size: 11px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+      }
+      .rangebar select {
+        width: auto;
+        padding: 4px 8px;
+      }
+      .range-dates {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .range-dates[hidden] {
+        display: none;
+      }
+      .range-dates input[type="date"] {
+        width: 152px;
+      }
+      .rangebar .mono {
+        color: var(--faint);
+        font-size: 12px;
+        font-variant-numeric: tabular-nums;
+      }
+      #range-label {
+        color: var(--dim);
+      }
+      .btn {
+        background: var(--panel2);
+        color: var(--text);
+        border: 1px solid var(--border-strong);
+        border-radius: 8px;
+        padding: 7px 16px;
+        font-size: 13px;
+        cursor: pointer;
+        font-family: var(--sans);
+        transition: all 0.15s ease;
+      }
+      .btn:hover {
+        border-color: var(--accent);
+      }
+      .btn.primary {
+        background: var(--accent);
+        color: #0a0a0d;
+        border-color: var(--accent);
+        font-weight: 600;
+      }
+      .btn-row {
+        display: flex;
+        gap: 10px;
+        margin-top: 14px;
+        flex-wrap: wrap;
+      }
+      .status {
+        margin-top: 10px;
+        font-size: 12px;
+        color: var(--dim);
+        min-height: 18px;
+      }
+      .status.saved {
+        color: var(--cost);
+      }
+      .status.error {
+        color: var(--warn);
+      }
+      .cmp {
+        font-size: 11px;
+        color: var(--dim);
+      }
+      .diff {
+        color: var(--dim);
+        font-size: 11px;
+      }
+      details {
+        margin-top: 10px;
+      }
+      summary {
+        cursor: pointer;
+        color: var(--dim);
+        font-size: 13px;
+      }
+      pre {
+        background: var(--bg);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 12px;
+        overflow: auto;
+        font-size: 12px;
+        margin-top: 8px;
+        font-family: var(--mono);
+      }
+      .model-list {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+        gap: 10px;
+      }
+      .model-item {
+        background: var(--bg);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 8px 10px;
+      }
+      .model-item .mname {
+        font-size: 12px;
+        color: var(--dim);
+        font-family: var(--mono);
+        word-break: break-all;
+        margin-bottom: 4px;
+      }
+
+      .section {
+        display: none;
+      }
+      .section.active {
+        display: block;
+        animation: fadein 0.2s ease;
+      }
+      @keyframes fadein {
+        from {
+          opacity: 0;
+          transform: translateY(3px);
+        }
+        to {
+          opacity: 1;
+          transform: none;
+        }
+      }
+
+      .footer {
+        margin-top: 26px;
+        padding-top: 14px;
+        border-top: 1px solid var(--border);
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        flex-wrap: wrap;
+        color: var(--faint);
+        font-size: 11.5px;
+        font-family: var(--mono);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="topbar">
+      <div class="brand">
+        <span class="dot"></span>
+        Friendly Harness <span class="sub">Impact</span>
+      </div>
+      <div class="meta">
+        <span class="live mono" id="sync-time">syncing…</span>
+      </div>
+    </div>
+
+    <div class="tabs">
+      <button class="tab active" data-tab="totals">Totals</button>
+      <button class="tab" data-tab="trend">Trend</button>
+      <button class="tab" data-tab="assumptions">Assumptions</button>
+    </div>
+
+    <div class="section active" id="sec-totals">
+      <div class="panel rangebar">
+        <label class="lbl" for="range-select">Period</label>
+        <select id="range-select">
+          <option value="all">All time</option>
+          <option value="year">Last year</option>
+          <option value="month">Last month</option>
+          <option value="week">Last week</option>
+          <option value="day">Last day</option>
+          <option value="custom">Custom range</option>
+        </select>
+        <span class="range-dates" id="range-dates" hidden>
+          <input type="date" id="range-from" />
+          <span class="mono">–</span>
+          <input type="date" id="range-to" />
+        </span>
+        <span class="mono" id="range-label"></span>
+      </div>
+
+      <div class="grid cards" id="cards"></div>
+
+      <div class="panel">
+        <h2>Real-world comparison</h2>
+        <div id="equivalents"></div>
+      </div>
+    </div>
+
+    <div class="section" id="sec-trend">
+      <div class="panel rangebar">
+        <span class="lbl">Metric</span>
+        <span class="metric-tabs" id="metric-tabs">
+          <button class="mbtn active" data-metric="cost">cost</button>
+          <button class="mbtn" data-metric="kgCO2e">carbon</button>
+          <button class="mbtn" data-metric="kwh">electricity</button>
+          <button class="mbtn" data-metric="waterL">water</button>
+        </span>
+        <span class="mono" id="metric-label"></span>
+      </div>
+
+      <div class="panel">
+        <h2 class="caps">Usage breakout</h2>
+        <div id="flow-chart"></div>
+        <div class="hint">
+          Total usage, split by model, then by project. Follows the metric
+          toggle above. Hover a node for details.
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2 class="caps">Usage over time</h2>
+        <div id="trend-chart"></div>
+        <div class="split">
+          <div>
+            <h3 class="subhead">By project</h3>
+            <div id="project-chart"></div>
+          </div>
+          <div>
+            <h3 class="subhead">By model</h3>
+            <div id="model-chart"></div>
+          </div>
+        </div>
+        <div class="hint" id="trend-hint">
+          The toggle above applies to the usage breakout, usage over time, by
+          project, and by model.
+        </div>
+      </div>
+    </div>
+
+    <div class="section" id="sec-assumptions">
+      <div class="panel">
+        <h2>Location</h2>
+        <table class="assumptions">
+          <tr>
+            <th style="width: 160px">Where do you work?</th>
+            <td>
+              <input
+                type="text"
+                id="loc-place"
+                placeholder="e.g. Portland, OR"
+              />
+            </td>
+            <td style="width: 40%">
+              <span class="hint"
+                >Used for local models (ollama/local/*). Matches a US state's
+                eGRID 2022 factor. Non-US or unknown: falls back to US
+                average.</span
+              >
+            </td>
+          </tr>
+          <tr>
+            <th>Matched state</th>
+            <td colspan="2"><span id="loc-state" class="diff"></span></td>
+          </tr>
+        </table>
+        <div class="hint">
+          Source: EPA eGRID 2022, Table 3 (state output emission rates, CO2e
+          lb/MWh, converted to kg/kWh by dividing by 2204.62). Default: US
+          average 0.386 kg CO2e/kWh (also EPA eGRID, via impact-equivalences).
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>Energy profiles (kWh per 1000 tokens)</h2>
+        <table class="assumptions">
+          <tr>
+            <th>Profile</th>
+            <th style="width: 120px">Typical Wh/1k</th>
+            <th style="width: 120px">Min</th>
+            <th style="width: 120px">Max</th>
+            <th style="width: 30%">Default</th>
+          </tr>
+          <tbody id="profile-rows"></tbody>
+        </table>
+        <div class="hint">
+          Sources: Epoch AI inference-energy estimates via impact-equivalences.
+          Typical is used for headline numbers; min/max give the range shown on
+          cards.
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>Grid carbon intensity per region (kg CO2e / kWh)</h2>
+        <table class="assumptions">
+          <tr>
+            <th>Region</th>
+            <th style="width: 140px">kg CO2e/kWh</th>
+            <th style="width: 30%">Used for</th>
+            <th>Default</th>
+          </tr>
+          <tbody id="region-rows"></tbody>
+        </table>
+        <div class="hint">
+          Source: default region factor 0.386 kg CO2e/kWh is the US annual
+          average operational grid emissions (EPA eGRID, via
+          impact-equivalences). State-level values come from eGRID 2022 Table 3
+          (see states.json). Choose a state for local models via the Location
+          field above.
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>Water (datacenter cooling, liters / kWh)</h2>
+        <table class="assumptions">
+          <tr>
+            <th style="width: 160px">Typical L/kWh</th>
+            <td><input type="number" step="0.1" id="water-typical" /></td>
+            <td style="width: 20%">Default: 1.5</td>
+          </tr>
+          <tr>
+            <th>Min L/kWh</th>
+            <td><input type="number" step="0.1" id="water-min" /></td>
+            <td>Default: 0.7</td>
+          </tr>
+          <tr>
+            <th>Max L/kWh</th>
+            <td><input type="number" step="0.1" id="water-max" /></td>
+            <td>Default: 3.0</td>
+          </tr>
+        </table>
+        <div class="hint">
+          Source: datacenter operational cooling water (WUE). Google reports
+          about 1.1 L/kWh for its data centers (2022 Environmental Report);
+          industry range spans about 0.7-3 L/kWh depending on cooling design, so
+          1.5 L/kWh is the midpoint. Excludes upstream electricity generation
+          water.
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>Gaming baselines</h2>
+        <table class="assumptions">
+          <tr>
+            <th>Game</th>
+            <th style="width: 140px">Watts at the wall</th>
+            <th style="width: 30%">Default</th>
+          </tr>
+          <tbody id="game-rows"></tbody>
+        </table>
+        <div class="hint">
+          Source: Cyberpunk 2077 at 400 W approximates a high-end gaming PC
+          (e.g. RTX 4080-class GPU + mid-range CPU) running the game at high
+          settings at the wall; measured system draws for demanding titles land
+          around 350-500 W. Editable to your own rig.
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>Per-model profile overrides</h2>
+        <div class="model-list" id="model-overrides"></div>
+        <div class="hint">
+          Models not listed fall to prefix rules (e.g. openai-codex/* ->
+          frontier) then the default profile. Add a model id like
+          <code>openrouter/deepseek/deepseek-v4-flash-0731</code> to pin its
+          profile. Default profile (frontier) matches impact-equivalences'
+          package default; see the energy-profile sources above for how each
+          class's Wh/1k values were derived.
+        </div>
+        <div class="btn-row">
+          <button class="btn" id="add-override">Add override</button>
+        </div>
+      </div>
+
+      <div class="btn-row">
+        <button class="btn primary" id="save">Save assumptions</button>
+        <button class="btn" id="reset">Revert to defaults</button>
+        <button class="btn" id="compare">Compare default vs current</button>
+      </div>
+      <div class="status" id="save-status"></div>
+      <div id="compare-box"></div>
+
+      <div class="panel">
+        <h2>Assumptions in force</h2>
+        <details>
+          <summary>Show documented assumptions</summary>
+          <pre id="assumptions-text"></pre>
+        </details>
+      </div>
+    </div>
+
+    <div class="tooltip" id="tooltip"></div>
+
+    <footer class="footer">
+      <span>data: impact/ledger.jsonl · assumptions: impact/config.json</span>
+      <span class="mono" id="generated">—</span>
+    </footer>
+
+    <script>
+      "use strict";
+      const tooltip = d3.select("#tooltip");
+      const state = {
+        data: null, // full dataset from /api/data
+        config: null, // working copy (edits in progress)
+        totals: null, // last computed totals (server-side, reflects config)
+      };
+
+      // ---------------------------------------------------------------- helpers ---
+      const fmt = {
+        num: (n, d = 1) =>
+          n === 0
+            ? "0"
+            : n.toLocaleString(undefined, { maximumFractionDigits: d }),
+        money: (n) =>
+          n === 0
+            ? "$0"
+            : "$" + n.toLocaleString(undefined, { maximumFractionDigits: 2 }),
+        kwh: (n) => fmt.num(n, 1) + " kWh",
+        co2: (n) => (n < 0.01 ? "<0.01" : fmt.num(n, 2)) + " kg CO2e",
+        water: (n) => (n < 0.01 ? "<0.01" : fmt.num(n, 1)) + " L",
+      };
+      const palette = [
+        "#7fb8ff",
+        "#ff9e64",
+        "#7ee0d8",
+        "#d9b45b",
+        "#b9f27c",
+        "#f2b6ff",
+        "#ff7eb6",
+        "#9ea7ff",
+      ];
+      const METRICS = {
+        cost: {
+          label: "Cost",
+          unit: "$",
+          color: "#b9f27c",
+          fmt: (n) => fmt.money(n),
+        },
+        kgCO2e: {
+          label: "Carbon",
+          unit: "CO2e",
+          color: "#ff9e64",
+          fmt: (n) => fmt.co2(n),
+        },
+        kwh: {
+          label: "Electricity",
+          unit: "kWh",
+          color: "#d9b45b",
+          fmt: (n) => fmt.kwh(n),
+        },
+        waterL: {
+          label: "Water",
+          unit: "L",
+          color: "#7ee0d8",
+          fmt: (n) => fmt.water(n),
+        },
+      };
+      let trendMetric = "cost";
+
+      // ---- time range (Totals tab) ----------------------------------------
+      let range = { mode: "all", from: null, to: null };
+      const isoDay = (d) =>
+        `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(
+          2,
+          "0"
+        )}-${String(d.getDate()).padStart(2, "0")}`;
+      function computeRange() {
+        const t = new Date();
+        if (range.mode === "year") {
+          range.from = isoDay(
+            new Date(t.getFullYear() - 1, t.getMonth(), t.getDate())
+          );
+          range.to = isoDay(t);
+        } else if (range.mode === "month") {
+          range.from = isoDay(
+            new Date(t.getFullYear(), t.getMonth() - 1, t.getDate())
+          );
+          range.to = isoDay(t);
+        } else if (range.mode === "week") {
+          range.from = isoDay(
+            new Date(t.getFullYear(), t.getMonth(), t.getDate() - 7)
+          );
+          range.to = isoDay(t);
+        } else if (range.mode === "day") {
+          // most recent day that has data
+          range.from = range.to =
+            (state.data && state.data.range && state.data.range.max) ||
+            isoDay(t);
+        } else {
+          range.from = null;
+          range.to = null;
+        }
+      }
+      const fmtDay = (iso) => {
+        if (!iso) return "—";
+        const [y, m, d] = iso.split("-");
+        return new Date(y, m - 1, d).toLocaleDateString(undefined, {
+          month: "short",
+          day: "numeric",
+          year: "numeric",
+        });
+      };
+      function syncRangeUI() {
+        const custom = range.mode === "custom";
+        d3.select("#range-dates").attr("hidden", custom ? null : "");
+        if (custom) {
+          const full = (state.data && state.data.range) || {};
+          if (!d3.select("#range-from").property("value"))
+            d3.select("#range-from").property(
+              "value",
+              full.min || isoDay(new Date())
+            );
+          if (!d3.select("#range-to").property("value"))
+            d3.select("#range-to").property(
+              "value",
+              full.max || isoDay(new Date())
+            );
+          range.from = d3.select("#range-from").property("value");
+          range.to = d3.select("#range-to").property("value");
+        }
+        const full = (state.data && state.data.range) || {};
+        const label =
+          range.mode === "all"
+            ? full.min
+              ? `all time · ${fmtDay(full.min)} – ${fmtDay(full.max)}`
+              : "all time (no data yet)"
+            : `${fmtDay(range.from)} – ${fmtDay(range.to)}`;
+        d3.select("#range-label").text(label);
+      }
+
+      function setSynced() {
+        d3.select("#sync-time").text(
+          "synced " + new Date().toLocaleTimeString([], { hour12: false })
+        );
+        d3.select("#generated").text(
+          "generated " +
+            new Date(state.data?.generated || Date.now()).toLocaleString([], {
+              hour12: false,
+            }) +
+            " · rows " +
+            (state.data?.rows?.length ?? 0).toLocaleString()
+        );
+      }
+
+      async function fetchData() {
+        const q = new URLSearchParams();
+        if (range.from) q.set("from", range.from);
+        if (range.to) q.set("to", range.to);
+        const qs = q.toString();
+        const res = await fetch("/api/data" + (qs ? "?" + qs : ""));
+        if (!res.ok) throw new Error("failed to load /api/data");
+        state.data = await res.json();
+        state.config = structuredClone(state.data.config);
+        state.totals = state.data.totals;
+        syncRangeUI();
+        d3.select("#metric-label").text(
+          `showing ${METRICS[trendMetric].label.toLowerCase()} (${
+            METRICS[trendMetric].unit
+          })`
+        );
+        renderAll();
+        setSynced();
+      }
+
+      async function recompute() {
+        const res = await fetch("/api/compute", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            config: state.config,
+            from: range.from || undefined,
+            to: range.to || undefined,
+          }),
+        });
+        if (!res.ok) throw new Error("compute failed");
+        state.totals = (await res.json()).totals;
+        renderTotals();
+        renderFlow();
+        renderTrend();
+        renderProjectChart();
+        renderModelChart();
+      }
+
+      // ---------------------------------------------------------------- totals ----
+
+      function renderTotals() {
+        const t = state.totals;
+        const cards = d3.select("#cards");
+        const days = Object.entries(t.byDay)
+          .sort((a, b) => (a[0] < b[0] ? -1 : 1))
+          .map(([day, v]) => ({ day, ...v }));
+        const items = [
+          { label: "Cost", key: "cost", value: fmt.money(t.cost), cls: "cost" },
+          {
+            label: "Electricity",
+            key: "kwh",
+            value: fmt.kwh(t.kwh),
+            cls: "kwh",
+          },
+          {
+            label: "Carbon",
+            key: "kgCO2e",
+            value: fmt.co2(t.kgCO2e),
+            cls: "carbon",
+          },
+          {
+            label: "Water",
+            key: "waterL",
+            value: fmt.water(t.waterL),
+            cls: "water",
+          },
+          {
+            label: "Calls",
+            value: fmt.num(t.calls, 0),
+            range: fmt.num(t.tokens, 0) + " tokens",
+          },
+        ];
+        cards.selectAll(".card").remove();
+        cards
+          .selectAll(".card")
+          .data(items)
+          .join("div")
+          .attr("class", "card")
+          .each(function (d) {
+            const el = d3.select(this);
+            el.append("div").attr("class", "label").text(d.label);
+            el.append("div")
+              .attr("class", "value")
+              .style("color", d.cls ? "var(--" + d.cls + ")" : "var(--text)")
+              .text(d.value);
+            if (d.range) el.append("div").attr("class", "range").text(d.range);
+            if (d.key && days.length) {
+              // mini sparkline of the daily series (last 30 days)
+              const series = days.slice(-30).map((v) => v[d.key] || 0);
+              const w = 150,
+                h = 26;
+              const svg = el
+                .append("svg")
+                .attr("class", "spark")
+                .attr("viewBox", `0 0 ${w} ${h}`)
+                .attr("preserveAspectRatio", "none")
+                .style("width", "100%")
+                .style("height", h + "px");
+              const x = d3
+                .scaleLinear()
+                .domain([0, Math.max(1, series.length - 1)])
+                .range([1, w - 1]);
+              const y = d3
+                .scaleLinear()
+                .domain([0, d3.max(series) || 1])
+                .range([h - 2, 2]);
+              const line = d3
+                .line()
+                .x((_, i) => x(i))
+                .y((v) => y(v))
+                .curve(d3.curveMonotoneX);
+              svg
+                .append("path")
+                .datum(series)
+                .attr("d", line)
+                .attr("fill", "none")
+                .attr("stroke", `var(--${d.cls})`)
+                .attr("stroke-opacity", 0.85)
+                .attr("stroke-width", 1.4);
+            }
+          });
+
+        // equivalents
+        const eq = d3.select("#equivalents");
+        eq.selectAll(".eq-row").remove();
+        eq.selectAll(".eq-row")
+          .data(t.equivalents)
+          .join("div")
+          .attr("class", "eq-row")
+          .each(function (d) {
+            const el = d3.select(this);
+            el.append("span").attr("class", "eq-domain").text(d.domain);
+            el.append("span").attr("class", "eq-val").text(d.formatted);
+          });
+      }
+
+      // ---------------------------------------------------------------- charts ----
+      function baseSvg(sel, width, height, opts = {}) {
+        const padLeft = opts.padLeft ?? 45,
+          padRight = opts.padRight ?? 15,
+          padTop = opts.padTop ?? 24,
+          padBottom = opts.padBottom ?? 36;
+        sel.selectAll("svg").remove();
+        const svg = sel
+          .append("svg")
+          .attr("width", "100%")
+          .attr("viewBox", `0 0 ${width} ${height}`)
+          .style("max-width", width + "px");
+        const chartW = width - padLeft - padRight,
+          chartH = height - padTop - padBottom;
+        const g = svg
+          .append("g")
+          .attr("transform", `translate(${padLeft}, ${padTop})`);
+        return { svg, g, chartW, chartH, padLeft };
+      }
+
+      const labelMeasure = document.createElement("canvas").getContext("2d");
+      function measureLabel(s) {
+        // canvas measureText is reliable on detached inputs; SVG
+        // getComputedTextLength returns 0 for elements not in the DOM
+        labelMeasure.font = "12px system-ui, -apple-system, sans-serif";
+        const w = labelMeasure.measureText(s).width;
+        return Number.isFinite(w) ? w : s.length * 7.2;
+      }
+      function verticalBars(sel, entries, m) {
+        // entries: [{ label, value, total }] - vertical bars, value on the y
+        // axis, category labels along the bottom x axis, metric-colored.
+        const width = 620,
+          height = 300;
+        const { g, chartW, chartH, padLeft } = baseSvg(sel, width, height, {
+          padLeft: 68,
+          padTop: 20,
+          padBottom: 74,
+        });
+        const x = d3
+          .scaleBand()
+          .domain(entries.map((d) => d.label))
+          .range([0, chartW])
+          .padding(0.25);
+        const y = d3
+          .scaleLinear()
+          .domain([0, d3.max(entries, (d) => d.value) || 1])
+          .nice()
+          .range([chartH, 0]);
+        const bars = g
+          .append("g")
+          .selectAll("rect")
+          .data(entries)
+          .join("rect")
+          .attr("x", (d) => x(d.label) + x.bandwidth() * 0.1)
+          .attr("width", x.bandwidth() * 0.8)
+          .attr("y", chartH)
+          .attr("height", 0)
+          .attr("rx", 3)
+          .attr("fill", m.color);
+        bars
+          .transition()
+          .duration(500)
+          .attr("y", (d) => y(d.value))
+          .attr("height", (d) => Math.max(1, chartH - y(d.value)));
+        bars
+          .on("mousemove", function (e, d) {
+            showTip(
+              e,
+              `<span class="tt-title">${d.label}</span>` +
+                `<div class="tt-row"><em>${m.label}</em><b style="color:${
+                  m.color
+                }">${m.fmt(d.value)}</b></div>` +
+                `<div class="tt-row"><em>share</em><b>${(
+                  (d.value / (d.total || 1)) *
+                  100
+                ).toFixed(1)}%</b></div>`
+            );
+          })
+          .on("mouseleave", hideTip);
+        g.append("g")
+          .attr("class", "axis")
+          .attr("transform", `translate(0, ${chartH})`)
+          .call(
+            d3
+              .axisBottom(x)
+              .tickFormat((d) => truncate(String(d).split("/").pop(), 16))
+          )
+          .selectAll("text")
+          .attr("transform", "rotate(-22)")
+          .attr("text-anchor", "end")
+          .attr("x", -4)
+          .attr("y", 6);
+        g.append("g").attr("class", "axis").call(d3.axisLeft(y).ticks(5));
+        g.append("text")
+          .attr("class", "axis-title")
+          .attr(
+            "transform",
+            `translate(${-(padLeft - 24)}, ${chartH / 2}) rotate(-90)`
+          )
+          .attr("text-anchor", "middle")
+          .text(m.unit);
+      }
+
+      function showTip(event, html) {
+        tooltip
+          .html(html.replace(/\n/g, "<br>"))
+          .style("opacity", 1)
+          .style(
+            "left",
+            Math.min(event.pageX + 12, window.innerWidth - 330) + "px"
+          )
+          .style("top", event.pageY + 8 + "px");
+      }
+      function hideTip() {
+        tooltip.style("opacity", 0);
+      }
+
+      function renderTrend() {
+        const days = Object.entries(state.totals.byDay).sort((a, b) =>
+          a[0] < b[0] ? -1 : 1
+        );
+        const width = 860,
+          height = 300;
+        const { g, chartW, chartH, padLeft } = baseSvg(
+          d3.select("#trend-chart"),
+          width,
+          height,
+          { padLeft: 52, padBottom: 40 }
+        );
+        if (!days.length)
+          return g
+            .append("text")
+            .attr("y", 40)
+            .attr("fill", "var(--dim)")
+            .text("No usage yet.");
+        const m = METRICS[trendMetric] || METRICS.cost;
+        const x = d3
+          .scaleTime()
+          .domain(d3.extent(days, (d) => new Date(d[0])))
+          .range([0, chartW]);
+        const y = d3
+          .scaleLinear()
+          .domain([0, d3.max(days, (d) => d[1][trendMetric]) || 1])
+          .nice()
+          .range([chartH, 0]);
+        // x axis at the bottom
+        g.append("g")
+          .attr("class", "axis")
+          .attr("transform", `translate(0, ${chartH})`)
+          .call(d3.axisBottom(x).ticks(d3.timeDay.every(1)).ticks(10));
+        g.append("g").attr("class", "axis").call(d3.axisLeft(y).ticks(5));
+        // y axis units, next to the axis (rotated), same as the bar charts
+        g.append("text")
+          .attr("class", "axis-title")
+          .attr(
+            "transform",
+            `translate(${-(padLeft - 24)}, ${chartH / 2}) rotate(-90)`
+          )
+          .attr("text-anchor", "middle")
+          .text(m.unit);
+        const area = d3
+          .area()
+          .x((d) => x(new Date(d[0])))
+          .y0(chartH)
+          .y1((d) => y(d[1][trendMetric] || 0))
+          .curve(d3.curveMonotoneX);
+        const line = d3
+          .line()
+          .x((d) => x(new Date(d[0])))
+          .y((d) => y(d[1][trendMetric] || 0))
+          .curve(d3.curveMonotoneX);
+        g.append("path")
+          .datum(days)
+          .attr("fill", m.color)
+          .attr("fill-opacity", 0.15)
+          .attr("stroke", "none")
+          .attr("d", area);
+        g.append("path")
+          .datum(days)
+          .attr("fill", "none")
+          .attr("stroke", m.color)
+          .attr("stroke-width", 2)
+          .attr("d", line);
+        g.selectAll("circle")
+          .data(days)
+          .join("circle")
+          .attr("cx", (d) => x(new Date(d[0])))
+          .attr("cy", (d) => y(d[1][trendMetric] || 0))
+          .attr("r", 2.5)
+          .attr("fill", m.color)
+          .attr("opacity", 0.9)
+          .style("pointer-events", "none");
+        // crosshair + rich tooltip
+        const focusLine = g
+          .append("line")
+          .attr("stroke", "var(--border-strong)")
+          .attr("stroke-width", 1)
+          .attr("stroke-dasharray", "3 3")
+          .attr("y1", 0)
+          .attr("y2", chartH)
+          .style("opacity", 0);
+        const focusDot = g
+          .append("circle")
+          .attr("r", 4)
+          .attr("fill", m.color)
+          .attr("stroke", "var(--bg)")
+          .attr("stroke-width", 1.5)
+          .style("opacity", 0);
+        const bisect = d3.bisector((d) => new Date(d[0]).getTime()).center;
+        g.append("rect")
+          .attr("width", chartW)
+          .attr("height", chartH)
+          .attr("fill", "transparent")
+          .style("cursor", "crosshair")
+          .on("mousemove", function (e) {
+            const [mx] = d3.pointer(e);
+            const i = bisect(days, x.invert(mx));
+            const d = days[i];
+            if (!d) return;
+            const px = x(new Date(d[0]));
+            focusLine.attr("x1", px).attr("x2", px).style("opacity", 1);
+            focusDot
+              .attr("cx", px)
+              .attr("cy", y(d[1][trendMetric] || 0))
+              .attr("fill", m.color)
+              .style("opacity", 1);
+            showTip(
+              e,
+              `<span class="tt-title">${d[0]}</span>` +
+                `<div class="tt-row"><em>cost</em><b style="color:var(--cost)">${fmt.money(
+                  d[1].cost
+                )}</b></div>` +
+                `<div class="tt-row"><em>electricity</em><b style="color:var(--kwh)">${fmt.kwh(
+                  d[1].kwh
+                )}</b></div>` +
+                `<div class="tt-row"><em>carbon</em><b style="color:var(--carbon)">${fmt.co2(
+                  d[1].kgCO2e
+                )}</b></div>` +
+                `<div class="tt-row"><em>water</em><b style="color:var(--water)">${fmt.water(
+                  d[1].waterL
+                )}</b></div>`
+            );
+          })
+          .on("mouseleave", function () {
+            focusLine.style("opacity", 0);
+            focusDot.style("opacity", 0);
+            hideTip();
+          });
+      }
+
+      function renderModelChart() {
+        const m = METRICS[trendMetric];
+        const byModel = Object.entries(state.totals.byModel).sort(
+          (a, b) => (b[1][trendMetric] || 0) - (a[1][trendMetric] || 0)
+        );
+        const total = state.totals[trendMetric] || 0;
+        const entries = byModel.map(([label, t]) => ({
+          label,
+          value: t[trendMetric] || 0,
+          total,
+        }));
+        verticalBars(d3.select("#model-chart"), entries, m);
+      }
+
+      function renderProjectChart() {
+        const m = METRICS[trendMetric];
+        const byProject = Object.entries(state.totals.byProject).sort(
+          (a, b) => (b[1][trendMetric] || 0) - (a[1][trendMetric] || 0)
+        );
+        const total = state.totals[trendMetric] || 0;
+        const entries = byProject.map(([label, t]) => ({
+          label,
+          value: t[trendMetric] || 0,
+          total,
+        }));
+        verticalBars(d3.select("#project-chart"), entries, m);
+      }
+
+      // --------------------------------------------------------------- flow ----
+      function wrapText(text, maxPx) {
+        // greedy word-wrap so labels fit inside their chunk
+        const words = String(text || "").split(/\s+/);
+        const lines = [];
+        let line = "";
+        for (const w of words) {
+          const t = line ? line + " " + w : w;
+          if (labelMeasure.measureText(t).width <= maxPx || !line) line = t;
+          else {
+            lines.push(line);
+            line = w;
+          }
+        }
+        if (line) lines.push(line);
+        return lines;
+      }
+
+      function renderFlow() {
+        const m = METRICS[trendMetric];
+        const bmp = state.totals.byModelProject || {};
+        const MAX_PROJECTS = 6;
+        const models = Object.entries(bmp)
+          .map(([model, projects]) => {
+            let entries = Object.entries(projects)
+              .map(([p, t]) => ({
+                name: p.split("/").pop() || p,
+                value: t[trendMetric] || 0,
+              }))
+              .filter((e) => e.value > 0)
+              .sort((a, b) => b.value - a.value);
+            if (entries.length > MAX_PROJECTS) {
+              const top = entries.slice(0, MAX_PROJECTS);
+              const rest = entries
+                .slice(MAX_PROJECTS)
+                .reduce((s, e) => s + e.value, 0);
+              if (rest > 0)
+                top.push({
+                  name: `other (${entries.length - MAX_PROJECTS})`,
+                  value: rest,
+                });
+              entries = top;
+            }
+            const total = entries.reduce((s, e) => s + e.value, 0);
+            return { model, entries, total };
+          })
+          .filter((m) => m.total > 0)
+          .sort((a, b) => b.total - a.total)
+          .slice(0, 8);
+
+        // full desktop width; total column height only grows going right
+        const containerW = d3.select("#flow-chart").node().clientWidth || 1300;
+        const width = Math.max(containerW - 4, 1000);
+        if (!models.length) {
+          d3.select("#flow-chart").selectAll("svg").remove();
+          return d3
+            .select("#flow-chart")
+            .append("div")
+            .style("color", "var(--dim)")
+            .style("padding", "40px")
+            .text("No usage yet.");
+        }
+        const grandTotal = models.reduce((s, m) => s + m.total, 0);
+
+        // ---- data model ------------------------------------------------------
+        const nodes = [];
+        const links = [];
+        nodes.push({
+          id: "all",
+          name: "All usage",
+          col: 0,
+          value: grandTotal,
+          color: "#9aa3b2",
+        });
+        models.forEach((m, mi) => {
+          const id = "m" + mi;
+          nodes.push({
+            id,
+            name: m.model.split("/").pop(),
+            col: 1,
+            value: m.total,
+            color: palette[mi % palette.length],
+          });
+          links.push({ source: "all", target: id, value: m.total });
+          m.entries.forEach((e, ei) => {
+            const pid = id + ".p" + ei;
+            nodes.push({
+              id: pid,
+              name: e.name,
+              col: 2,
+              value: e.value,
+              color: palette[mi % palette.length],
+            });
+            links.push({ source: id, target: pid, value: e.value });
+          });
+        });
+
+        // ---- layout -----------------------------------------------------------
+        // Each column scales to its own total height; totals only grow going
+        // right (col 0 < col 1 < col 2). Chunks are sized relative only to
+        // other chunks in the SAME column, and always big enough for text.
+        const colTotal = [300, 380, 480]; // per-column heights, growing right
+        const colW = [130, 200, 280]; // chunks get wider going right
+        const GAP = 6;
+        const fontPx = 13;
+        labelMeasure.font = `600 ${fontPx}px system-ui, -apple-system, sans-serif`;
+        // count wrapped lines first so the svg height can fit the text
+        for (const c of [0, 1, 2]) {
+          for (const n of nodes.filter((nn) => nn.col === c)) {
+            n.lines = wrapText(n.name, colW[c] - 18);
+            n.minH = n.lines.length * 17 + 24; // name lines + % line + pad
+          }
+        }
+        const estHeights = [0, 1, 2].map((c) => {
+          const col = nodes.filter((n) => n.col === c);
+          const mins = col.reduce((s, n) => s + n.minH, 0);
+          const gaps = GAP * (col.length - 1);
+          return Math.max(colTotal[c], mins + gaps);
+        });
+        let height = Math.max(...estHeights) + 40;
+        height = Math.max(height, 340);
+        const { g, chartW, chartH } = baseSvg(
+          d3.select("#flow-chart"),
+          width,
+          height,
+          { padLeft: 10, padRight: 10, padTop: 12, padBottom: 12 }
+        );
+        // column x positions spread across the full width
+        const colX = [];
+        {
+          let x = 0;
+          for (let c = 0; c < 3; c++) {
+            colX.push(x);
+            x += colW[c] + (c === 0 ? chartW * 0.14 : chartW * 0.18);
+          }
+        }
+        for (const c of [0, 1, 2]) {
+          const col = nodes.filter((n) => n.col === c);
+          const sum = col.reduce((s, n) => s + n.value, 0) || 1;
+          const mins = col.reduce((s, n) => s + n.minH, 0);
+          const gaps = GAP * (col.length - 1);
+          // column height honors min text; never smaller than the left column
+          const target = Math.max(
+            colTotal[c],
+            (c > 0 ? colTotal[c - 1] : 0) + 10,
+            mins + gaps
+          );
+          colTotal[c] = target;
+          const scale = (target - mins - gaps) / sum;
+          let y = 0;
+          for (const n of col) {
+            n.h = Math.max(n.minH + n.value * scale, n.minH);
+            n.y = y;
+            y += n.h + GAP;
+          }
+        }
+
+        // ---- ribbons: each link spans the source band to the target chunk ----
+        const bandCum = {};
+        for (const c of [0, 1]) {
+          for (const s of nodes.filter((n) => n.col === c)) {
+            const outs = links
+              .filter((l) => l.source === s.id)
+              .sort((a, b) => {
+                const ta = nodes.find((n) => n.id === a.target);
+                const tb = nodes.find((n) => n.id === b.target);
+                return ta.y - tb.y;
+              });
+            let cum = s.y;
+            bandCum[s.id] = {};
+            for (const l of outs) {
+              bandCum[s.id][l.target] = cum;
+              const t = nodes.find((n) => n.id === l.target);
+              cum += (l.value / s.value) * s.h;
+            }
+          }
+        }
+        const ribbon = (l) => {
+          const s = nodes.find((n) => n.id === l.source);
+          const t = nodes.find((n) => n.id === l.target);
+          const sx0 = colX[s.col] + colW[s.col],
+            sx1 = colX[t.col];
+          const sy0 = bandCum[s.id][l.target];
+          const sy1 = sy0 + (l.value / s.value) * s.h;
+          const ty0 = t.y,
+            ty1 = t.y + t.h;
+          const mid = (sx0 + sx1) / 2;
+          return `M${sx0},${sy0} C${mid},${sy0} ${mid},${ty0} ${sx1},${ty0} L${sx1},${ty1} C${mid},${ty1} ${mid},${sy1} ${sx0},${sy1} Z`;
+        };
+
+        // ribbons under nodes
+        g.append("g")
+          .selectAll("path")
+          .data(links)
+          .join("path")
+          .attr("d", ribbon)
+          .attr("fill", (l) => {
+            const s = nodes.find((n) => n.id === l.source);
+            return s.color || "var(--border)";
+          })
+          .attr("fill-opacity", 0.25)
+          .on("mousemove", function (e, l) {
+            const t = nodes.find((n) => n.id === l.target);
+            d3.select(this).attr("fill-opacity", 0.5);
+            showTip(
+              e,
+              `<span class="tt-title">${t.name}</span>` +
+                `<div class="tt-row"><em>${m.label}</em><b style="color:${
+                  nodes.find((n) => n.id === l.source).color
+                }">${m.fmt(l.value)}</b></div>` +
+                `<div class="tt-row"><em>share</em><b>${(
+                  (l.value / grandTotal) *
+                  100
+                ).toFixed(1)}%</b></div>`
+            );
+          })
+          .on("mouseleave", function () {
+            d3.select(this).attr("fill-opacity", 0.25);
+            hideTip();
+          });
+        // node chunks with wrapped labels inside
+        g.append("g")
+          .selectAll("rect")
+          .data(nodes)
+          .join("rect")
+          .attr("x", (n) => colX[n.col])
+          .attr("y", (n) => n.y)
+          .attr("width", (n) => colW[n.col])
+          .attr("height", (n) => Math.max(3, n.h))
+          .attr("rx", 4)
+          .attr("fill", (n) => n.color || "var(--accent)")
+          .attr("fill-opacity", 0.92)
+          .on("mousemove", function (e, n) {
+            showTip(
+              e,
+              `<span class="tt-title">${n.name}</span>` +
+                `<div class="tt-row"><em>${m.label}</em><b style="color:${
+                  n.color
+                }">${m.fmt(n.value)}</b></div>` +
+                `<div class="tt-row"><em>share</em><b>${(
+                  (n.value / grandTotal) *
+                  100
+                ).toFixed(1)}%</b></div>`
+            );
+          })
+          .on("mouseleave", hideTip);
+        // wrapped labels inside chunks
+        g.append("g")
+          .selectAll("flow-label")
+          .data(nodes)
+          .join("text")
+          .attr("class", "flow-name")
+          .attr("text-anchor", "middle")
+          .attr("font-size", fontPx)
+          .attr("fill", "var(--bg)")
+          .each(function (n) {
+            const el = d3.select(this);
+            const cx = colX[n.col] + colW[n.col] / 2;
+            const totalLines = n.lines.length + 1;
+            const blockH = totalLines * 17;
+            const ty = n.y + Math.max(0, (n.h - blockH) / 2) + 12;
+            n.lines.forEach((ln, i) => {
+              el.append("tspan")
+                .attr("x", cx)
+                .attr("y", ty + i * 17)
+                .text(ln);
+            });
+            el.append("tspan")
+              .attr("x", cx)
+              .attr("y", ty + n.lines.length * 17)
+              .attr("font-size", 11)
+              .attr("font-weight", 500)
+              .attr("fill", "var(--bg)")
+              .attr("fill-opacity", 0.8)
+              .text(`${((n.value / grandTotal) * 100).toFixed(1)}%`);
+          });
+      }
+
+      function truncate(s, n) {
+        return s && s.length > n ? s.slice(0, n - 1) + "…" : s;
+      }
+
+      // ---------------------------------------------------------- assumptions ----
+      function bindInput(sel, get, set) {
+        d3.select(sel).on("input", function () {
+          const v = this.value;
+          set(v);
+          recompute().catch(() => {});
+        });
+      }
+
+      function renderAssumptions() {
+        const cfg = state.config,
+          dflt = state.data.defaults;
+
+        // location
+        d3.select("#loc-place").property("value", cfg.location?.place || "");
+        const st = cfg.location?.state || "";
+        const stInfo = state.data.states[st];
+        d3.select("#loc-state").text(
+          st
+            ? stInfo
+              ? `${stInfo.state}: ${stInfo.kgCO2ePerKWh} kg CO2e/kWh (eGRID 2022)`
+              : `state "${st}" not in eGRID table - falls back to US average`
+            : "no state set - local models use US average"
+        );
+        bindInput(
+          "#loc-place",
+          () => cfg.location?.place,
+          (v) => {
+            cfg.location = { place: v, state: matchState(v) };
+            const st = cfg.location.state;
+            const stInfo = state.data.states[st];
+            d3.select("#loc-state").text(
+              st
+                ? stInfo
+                  ? `${stInfo.state}: ${stInfo.kgCO2ePerKWh} kg CO2e/kWh (eGRID 2022)`
+                  : `state "${st}" not in eGRID table - falls back to US average`
+                : "no state set - local models use US average"
+            );
+            recompute().catch(() => {});
+          }
+        );
+
+        // profiles
+        const profRows = d3.select("#profile-rows");
+        profRows.selectAll("tr").remove();
+        profRows
+          .selectAll("tr")
+          .data(Object.entries(state.data.profiles))
+          .join("tr")
+          .each(function ([id, p]) {
+            const el = d3.select(this);
+            const profileKeys = { typical: p.typical, min: p.min, max: p.max };
+            el.append("td").text(id);
+            for (const [k, def] of Object.entries({
+              typical: p.typical,
+              min: p.min,
+              max: p.max,
+            })) {
+              const td = el.append("td");
+              td.append("input")
+                .attr("type", "number")
+                .attr("step", "0.01")
+                .property("value", p[k])
+                .on("input", function () {
+                  p[k] = parseFloat(this.value) || 0;
+                  recompute().catch(() => {});
+                });
+            }
+            el.append("td").attr("class", "diff").text(`default ${p.typical}`);
+          });
+
+        // regions (from config.providerRegions + states)
+        const regionRows = d3.select("#region-rows");
+        regionRows.selectAll("tr").remove();
+        const regionEntries = [];
+        for (const [k, v] of Object.entries(cfg.providerRegions || {})) {
+          regionEntries.push({ key: k, region: v, note: "provider: " + k });
+        }
+        regionEntries.push({
+          key: "location",
+          region: cfg.location?.state ? "us-" + cfg.location.state : "us",
+          note: "local models",
+        });
+        regionRows
+          .selectAll("tr")
+          .data(regionEntries)
+          .join("tr")
+          .each(function (d) {
+            const el = d3.select(this);
+            el.append("td").text(d.note);
+            const stateIds = Object.keys(state.data.states).filter((s) =>
+              /^[A-Z]{2}$/.test(s)
+            );
+            el.append("td")
+              .append("select")
+              .selectAll("option")
+              .data(["us", ...stateIds.map((s) => "us-" + s)])
+              .join("option")
+              .attr("value", (o) => o)
+              .text((o) => o)
+              .property("selected", (o) => o === d.region)
+              .on("change", function () {
+                if (d.key === "location") {
+                  const st = this.value.replace("us-", "");
+                  cfg.location.state = st;
+                  d3.select("#loc-place").property("value", st ? st : "");
+                } else {
+                  cfg.providerRegions[d.key] = this.value;
+                }
+                recompute().catch(() => {});
+              });
+            el.append("td").attr("class", "diff").text(regionLabel(d.region));
+          });
+
+        // water
+        d3.select("#water-typical").property(
+          "value",
+          cfg.water?.typicalLPerKWh ?? 1.5
+        );
+        d3.select("#water-min").property("value", cfg.water?.minLPerKWh ?? 0.7);
+        d3.select("#water-max").property("value", cfg.water?.maxLPerKWh ?? 3.0);
+        bindInput(
+          "#water-typical",
+          () => cfg.water?.typicalLPerKWh,
+          (v) => {
+            cfg.water = cfg.water || {};
+            cfg.water.typicalLPerKWh = parseFloat(v) || 0;
+          }
+        );
+        bindInput(
+          "#water-min",
+          () => cfg.water?.minLPerKWh,
+          (v) => {
+            cfg.water = cfg.water || {};
+            cfg.water.minLPerKWh = parseFloat(v) || 0;
+          }
+        );
+        bindInput(
+          "#water-max",
+          () => cfg.water?.maxLPerKWh,
+          (v) => {
+            cfg.water = cfg.water || {};
+            cfg.water.maxLPerKWh = parseFloat(v) || 0;
+          }
+        );
+
+        // games
+        const gameRows = d3.select("#game-rows");
+        gameRows.selectAll("tr").remove();
+        gameRows
+          .selectAll("tr")
+          .data(Object.entries(cfg.games || {}))
+          .join("tr")
+          .each(function ([id, g]) {
+            const el = d3.select(this);
+            el.append("td").text(g.label || id);
+            const td = el.append("td");
+            td.append("input")
+              .attr("type", "number")
+              .attr("step", "10")
+              .property("value", g.watts)
+              .on("input", function () {
+                g.watts = parseFloat(this.value) || 0;
+                recompute().catch(() => {});
+              });
+            el.append("td")
+              .attr("class", "diff")
+              .text(`default ${(dflt.games || {})[id]?.watts ?? "-"}`);
+          });
+
+        // model overrides
+        const ov = d3.select("#model-overrides");
+        ov.selectAll(".model-item").remove();
+        const modelIds = Object.keys(cfg.models || {});
+        const knownModels = [
+          ...new Set(state.data.rows.map((r) => r.model)),
+        ].sort();
+        ov.selectAll(".model-item")
+          .data(
+            modelIds.concat(
+              knownModels.filter((m) => !modelIds.includes(m)).map((m) => "")
+            )
+          )
+          .join("div")
+          .attr("class", "model-item")
+          .each(function (m) {
+            if (!m) {
+              d3.select(this).remove();
+              return;
+            }
+            const el = d3.select(this);
+            const row = el.append("div").attr("class", "mname").text(m);
+            const sel = el
+              .append("select")
+              .selectAll("option")
+              .data([
+                "efficient_small_model",
+                "balanced_model",
+                "frontier_model",
+                "default",
+              ])
+              .join("option")
+              .attr("value", (o) => o)
+              .text((o) => o)
+              .property("selected", (o) => (cfg.models[m] || "default") === o)
+              .on("change", function () {
+                const v = this.value;
+                if (v === "default") delete cfg.models[m];
+                else cfg.models[m] = v;
+                recompute().catch(() => {});
+              });
+          });
+
+        d3.select("#assumptions-text").text(state.data.assumptions.join("\n"));
+      }
+
+      function matchState(place) {
+        if (!place) return "";
+        const m = place.match(/\b([A-Za-z]{2})\b$/);
+        if (!m) return "";
+        const st = m[1].toUpperCase();
+        return state.data.states[st] ? st : "";
+      }
+
+      function regionLabel(region) {
+        if (region === "us") return "US average 0.386";
+        if (region.startsWith("us-")) {
+          const s = state.data.states[region.slice(3)];
+          return s ? `${s.state} ${s.kgCO2ePerKWh}` : region;
+        }
+        return region;
+      }
+
+      function regionForModel(model) {
+        const provider = model.split("/")[0];
+        const cfg = state.config;
+        const regions = cfg.providerRegions || {};
+        if (
+          cfg.location?.state &&
+          /^(ollama|local|lmstudio|llamacpp)/.test(provider)
+        )
+          return "us-" + cfg.location.state;
+        return regions[provider] || regions.default || "us";
+      }
+
+      // --------------------------------------------------------------- actions ----
+      function setStatus(msg, kind) {
+        d3.select("#save-status")
+          .attr("class", "status" + (kind ? " " + kind : ""))
+          .text(msg);
+      }
+
+      async function saveConfig() {
+        try {
+          const res = await fetch("/api/config", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ config: state.config }),
+          });
+          if (!res.ok) throw new Error("save failed");
+          setStatus(
+            "Saved to impact/config.json. Reports now use these values everywhere.",
+            "saved"
+          );
+          state.data.config = structuredClone(state.config);
+        } catch (e) {
+          setStatus("Save failed: " + e.message, "error");
+        }
+      }
+
+      async function resetConfig() {
+        const res = await fetch("/api/config", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ reset: true }),
+        });
+        if (!res.ok) return setStatus("Reset failed", "error");
+        await fetchData();
+        setStatus("Reverted to defaults.", "saved");
+      }
+
+      function compareDefaults() {
+        const dflt = state.data.defaults;
+        const cfg = state.config;
+        const lines = [];
+        lines.push("DEFAULT  |  CURRENT");
+        lines.push(
+          `water L/kWh   ${dflt.water.typicalLPerKWh} | ${cfg.water?.typicalLPerKWh}`
+        );
+        for (const [id, g] of Object.entries(dflt.games || {})) {
+          const cur = (cfg.games || {})[id];
+          lines.push(`game ${id} W  ${g.watts} | ${cur ? cur.watts : "-"}`);
+        }
+        for (const [id, p] of Object.entries(state.data.profiles)) {
+          const cur = p;
+          lines.push(`profile ${id} typ ${p.typical} | ${cur.typical}`);
+        }
+        lines.push(
+          `provider regions ${JSON.stringify(
+            dflt.providerRegions
+          )} | ${JSON.stringify(cfg.providerRegions || {})}`
+        );
+        lines.push(
+          `model overrides ${JSON.stringify(dflt.models)} | ${JSON.stringify(
+            cfg.models || {}
+          )}`
+        );
+        d3.select("#compare-box").html(`<pre>${lines.join("\n")}</pre>`);
+      }
+
+      // ---------------------------------------------------------------- render ----
+      function renderAll() {
+        renderTotals();
+        renderFlow();
+        renderTrend();
+        renderProjectChart();
+        renderModelChart();
+        renderAssumptions();
+      }
+
+      d3.selectAll(".tab").on("click", function () {
+        d3.selectAll(".tab").classed("active", false);
+        d3.select(this).classed("active", true);
+        d3.selectAll(".section").classed("active", false);
+        d3.select("#sec-" + d3.select(this).attr("data-tab")).classed(
+          "active",
+          true
+        );
+      });
+
+      d3.selectAll("#metric-tabs .mbtn").on("click", function () {
+        d3.selectAll("#metric-tabs .mbtn").classed("active", false);
+        d3.select(this).classed("active", true);
+        trendMetric = d3.select(this).attr("data-metric");
+        d3.select("#metric-label").text(
+          `showing ${METRICS[trendMetric].label.toLowerCase()} (${
+            METRICS[trendMetric].unit
+          })`
+        );
+        renderFlow();
+        renderTrend();
+        renderProjectChart();
+        renderModelChart();
+      });
+
+      d3.select("#range-select").on("change", function () {
+        range.mode = d3.select(this).property("value");
+        if (range.mode === "all") {
+          range.from = null;
+          range.to = null;
+        } else if (range.mode !== "custom") {
+          computeRange();
+        }
+        syncRangeUI();
+        fetchData();
+      });
+      d3.select("#range-from").on("change", function () {
+        const v = d3.select(this).property("value");
+        if (!v) return;
+        range.from = v;
+        if (range.to && range.from > range.to) {
+          range.to = range.from;
+          d3.select("#range-to").property("value", range.from);
+        }
+        fetchData();
+      });
+      d3.select("#range-to").on("change", function () {
+        const v = d3.select(this).property("value");
+        if (!v) return;
+        range.to = v;
+        if (range.from && range.to < range.from) {
+          range.from = range.to;
+          d3.select("#range-from").property("value", range.to);
+        }
+        fetchData();
+      });
+
+      d3.select("#save").on("click", saveConfig);
+      d3.select("#reset").on("click", resetConfig);
+      d3.select("#compare").on("click", compareDefaults);
+      d3.select("#add-override").on("click", () => {
+        const id = prompt(
+          "Model id (e.g. openrouter/deepseek/deepseek-v4-flash-0731):"
+        );
+        if (!id) return;
+        state.config.models = state.config.models || {};
+        state.config.models[id] = "balanced_model";
+        renderAssumptions();
+      });
+
+      fetchData().catch((e) => {
+        document.querySelector(
+          "#cards"
+        ).innerHTML = `<div class="card"><div class="label">Error</div><div class="value">${e.message}</div>
+     <div class="range">Is the fpi-impact server running? Try: fpi-impact</div></div>`;
+      });
+    </script>
+  </body>
+</html>

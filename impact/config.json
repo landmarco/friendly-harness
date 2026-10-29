@@ -1,0 +1,33 @@
+{
+  "_comment": "Active assumptions. Edit here, or use the Assumptions tab in fpi-impact; defaults.json is the revert target.",
+  "location": {
+    "place": "",
+    "state": ""
+  },
+  "providerRegions": {
+    "default": "us",
+    "openrouter": "us",
+    "openai-codex": "us",
+    "anthropic": "us"
+  },
+  "models": {
+    "openrouter/deepseek/deepseek-v4.1-flash-1017": "efficient_small_model"
+  },
+  "prefixProfiles": {
+    "openai-codex": "frontier_model",
+    "ollama": "efficient_small_model",
+    "local": "efficient_small_model"
+  },
+  "defaultProfile": "frontier_model",
+  "water": {
+    "typicalLPerKWh": 1.5,
+    "minLPerKWh": 0.7,
+    "maxLPerKWh": 3
+  },
+  "games": {
+    "cyberpunk-2077": {
+      "label": "Cyberpunk 2077 (high-end rig, 4K ultra)",
+      "watts": 400
+    }
+  }
+}

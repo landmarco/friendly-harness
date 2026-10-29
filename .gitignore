@@ -1,0 +1,66 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Node
+node_modules/
+npm-debug.log*
+package-lock.json
+
+# Build artifacts
+dist/
+build/
+.next/
+
+# Secrets and machine-local state (never commit)
+.env
+.env.local
+.env.*.local
+auth.json
+trust.json
+AGENTS.local.md
+
+# pi caches and lock state (machine-local)
+mcp-cache.json
+mcp-npx-cache.json
+mcp-onboarding.json
+skills-lock.json
+.skill-lock.json
+models-store.json
+.auto/
+
+# Session logs - conversation transcripts, may contain secrets/personal info.
+# Kept in dev /brayness only, never synced to the published repo.
+sessions/
+
+# Plans (scratch working area)
+plans/
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Agents
+.agents/
+# Editor backup and undo files (vim)
+*~
+.*.un~
+
+# Machine-local pi helpers and harness state
+.pi/agent/bin/
+cost-state.json
+
+# Scratch work (per AGENTS.md)
+artifacts/
+impact/ledger.jsonl
+impact/.server.pid
+impact/.server.log
+
+# Personal vault data (the vault skill ships only the example list)
+skills/vault/raindrop-files.txt
+
+# Local Ableton presets (do not publish)
+skills/zoom-to-ableton/*.adg

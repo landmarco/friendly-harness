@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Legacy shim for attaching to / starting Friendly Harness tmux sessions.
+# Under the unified launcher this maps to bin/fpi --attach / --list / --worktree.
+
+HARNESS_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+FPI="$HARNESS_DIR/bin/fpi"
+
+case "${1:-}" in
+    -l|--list) exec "$FPI" --list ;;
+    -h|--help) exec "$FPI" --help ;;
+    -r|--romp)
+        shift
+        exec "$FPI" --worktree "$@"
+        ;;
+    *) exec "$FPI" --attach "$@" ;;
+esac

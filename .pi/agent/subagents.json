@@ -1,0 +1,23 @@
+{
+  "timeout_ms": 1200000,
+  "stall_timeout_ms": 240000,
+  "max_concurrency": 2,
+  "debug": false,
+  "session_resources": "lean",
+  "default_mode": "task",
+  "enable_continue": false,
+  "default_tools": ["read", "bash", "write", "edit"],
+  "model_profiles": {
+    "consultant": { "model": "openai-codex/gpt-6.1-sol", "effort": "high" },
+    "planner": { "model": "openai-codex/gpt-5.5", "effort": "high" },
+    "critic": { "model": "openai-codex/gpt-5.5", "effort": "high" },
+    "worker": {
+      "model": "openrouter/deepseek/deepseek-v4.1-flash-1017",
+      "effort": "high"
+    },
+    "explorer": {
+      "model": "openrouter/deepseek/deepseek-v4.1-flash-1017",
+      "effort": "medium"
+    }
+  }
+}

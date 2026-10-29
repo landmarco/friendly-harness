@@ -1,0 +1,73 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Friendly Harness - impact dashboard.
+#
+#   fpi-impact            sync usage into the ledger, start the dashboard
+#                         server (background), open it in the browser
+#   fpi-impact --stop     stop the background dashboard server
+#   fpi-impact --url      print the dashboard URL (server must be running)
+#
+# The dashboard reads impact/config.json for assumptions; edits made in the
+# Assumptions tab save back to that file.
+
+HARNESS_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+IMPACT_DIR="$HARNESS_ROOT/impact"
+PORT="${FPI_IMPACT_PORT:-8731}"
+PID_FILE="$IMPACT_DIR/.server.pid"
+URL="http://127.0.0.1:$PORT"
+
+server_running() {
+    [[ -f "$PID_FILE" ]] || return 1
+    local pid
+    pid="$(cat "$PID_FILE" 2>/dev/null || true)"
+    [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null
+}
+
+start_server() {
+    # Sync first: fold any session files not yet in the ledger, so the
+    # dashboard covers sessions from before the extension was installed.
+    node "$IMPACT_DIR/impact-core.mjs" --sync
+    nohup node "$IMPACT_DIR/server.mjs" >"$IMPACT_DIR/.server.log" 2>&1 &
+    echo $! > "$PID_FILE"
+    # Wait for the server to answer before opening the browser.
+    for _ in $(seq 1 30); do
+        if curl -sf "$URL/api/health" >/dev/null 2>&1; then
+            return 0
+        fi
+        sleep 0.2
+    done
+    echo "fpi-impact: server failed to start; see $IMPACT_DIR/.server.log" >&2
+    exit 1
+}
+
+case "${1:-}" in
+    --stop)
+        if server_running; then
+            kill "$(cat "$PID_FILE")" 2>/dev/null || true
+            rm -f "$PID_FILE"
+            echo "fpi-impact: server stopped."
+        else
+            echo "fpi-impact: no server running."
+        fi
+        ;;
+    --url)
+        server_running || { echo "fpi-impact: server not running; start with fpi-impact" >&2; exit 1; }
+        echo "$URL"
+        ;;
+    "")
+        if ! server_running; then
+            start_server
+        fi
+        echo "Friendly Harness impact dashboard: $URL"
+        if command -v xdg-open >/dev/null 2>&1; then
+            xdg-open "$URL" >/dev/null 2>&1 &
+        elif command -v open >/dev/null 2>&1; then
+            open "$URL" >/dev/null 2>&1 &
+        fi
+        ;;
+    *)
+        echo "usage: fpi-impact [--stop|--url]" >&2
+        exit 1
+        ;;
+esac

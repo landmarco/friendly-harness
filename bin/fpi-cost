@@ -1,0 +1,120 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# OpenRouter spend monitor for Friendly Harness.
+#
+#   fpi-cost            full report
+#   fpi-cost --warn     quiet unless near/over budget; exit 2 if over
+#
+# OpenRouter's key endpoint reports LIFETIME usage for the key, so this keeps
+# a per-month baseline in .pi/agent/cost-state.json and reports the delta.
+#
+# This is a monitor, not an enforcer. The authoritative hard cap is the credit
+# limit on the key itself at https://openrouter.ai/settings/keys - set it there.
+
+HARNESS_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+AGENT_DIR="$HARNESS_ROOT/.pi/agent"
+AUTH="$AGENT_DIR/auth.json"
+STATE="$AGENT_DIR/cost-state.json"
+
+BUDGET="${FPI_BUDGET_USD:-20}"
+SOFT="${FPI_BUDGET_SOFT_PCT:-75}"
+
+MODE="report"
+[[ "${1:-}" == "--warn" ]] && MODE="warn"
+MONTH="$(date +%Y-%m)"
+
+quiet_fail() { [[ "$MODE" == "warn" ]] && exit 0; echo "$1" >&2; exit 1; }
+
+command -v curl >/dev/null 2>&1 || quiet_fail "fpi-cost: curl not found"
+command -v python3 >/dev/null 2>&1 || quiet_fail "fpi-cost: python3 not found"
+[[ -f "$AUTH" ]] || quiet_fail "fpi-cost: no $AUTH"
+
+KEY="$(python3 -c "
+import json,sys
+try: print(json.load(open('$AUTH')).get('openrouter',{}).get('key',''))
+except Exception: print('')
+")"
+[[ -n "$KEY" ]] || quiet_fail "fpi-cost: no OpenRouter key in auth.json"
+
+RESP="$(curl -sS --max-time 6 -H "Authorization: Bearer $KEY" \
+    https://openrouter.ai/api/v1/key 2>/dev/null || true)"
+[[ -n "$RESP" ]] || quiet_fail "fpi-cost: could not reach OpenRouter"
+
+python3 - "$RESP" "$STATE" "$BUDGET" "$SOFT" "$MODE" <<'PY'
+import json, sys, os, datetime
+
+resp, state_path, budget, soft_pct, mode = sys.argv[1:6]
+budget, soft_pct = float(budget), float(soft_pct)
+
+try:
+    data = json.loads(resp)["data"]
+except Exception:
+    sys.exit(0 if mode == "warn" else 1)
+
+usage = float(data.get("usage") or 0)
+key_limit = data.get("limit")
+month = datetime.date.today().strftime("%Y-%m")
+
+state = {}
+if os.path.exists(state_path):
+    try:
+        state = json.load(open(state_path))
+    except Exception:
+        state = {}
+
+# First sighting of this month becomes the baseline for month-to-date.
+baselines = state.setdefault("baselines", {})
+if month not in baselines:
+    baselines[month] = usage
+    state["note"] = "baselines[month] = lifetime key usage at first run that month"
+    tmp = state_path + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(state, f, indent=2)
+    os.replace(tmp, state_path)
+
+mtd = max(0.0, usage - baselines[month])
+pct = (mtd / budget * 100) if budget else 0
+over = mtd >= budget
+near = pct >= soft_pct
+
+if mode == "warn":
+    if over:
+        print(f"BUDGET EXCEEDED: OpenRouter ${mtd:.2f} of ${budget:.2f} this month ({month}).")
+        print("Set FPI_ALLOW_OVER_BUDGET=1 to start anyway, or raise FPI_BUDGET_USD.")
+        sys.exit(2)
+    if near:
+        print(f"Budget: OpenRouter ${mtd:.2f} of ${budget:.2f} this month ({pct:.0f}%).")
+    sys.exit(0)
+
+print(f"OpenRouter spend")
+print(f"  Month ({month}):  ${mtd:.2f} of ${budget:.2f} budget  ({pct:.0f}%)")
+print(f"  Key lifetime:    ${usage:.2f}")
+if key_limit is None:
+    print(f"  Key credit cap:  NONE SET  <- set one at openrouter.ai/settings/keys")
+    print(f"                   for a cap that OpenRouter actually enforces")
+else:
+    print(f"  Key credit cap:  ${float(key_limit):.2f} (enforced by OpenRouter)")
+if len(baselines) == 1 and mtd == 0:
+    print("\n  First run this month: baseline recorded, month-to-date starts now.")
+PY
+
+# --- environmental impact for the same window (all providers) --------------
+# Roughly: the OpenRouter key usage above is per-key; this section reports
+# total impact (all providers) for the same month from the local ledger.
+IMPACT_CORE="$HARNESS_ROOT/impact/impact-core.mjs"
+if [[ "$MODE" == "report" && -f "$IMPACT_CORE" ]]; then
+    IMPACT="$(node "$IMPACT_CORE" --month "$MONTH" 2>/dev/null || true)"
+    if [[ -n "$IMPACT" ]]; then
+        echo "Impact (all providers, $MONTH)"
+        node "$IMPACT_CORE" --month "$MONTH" 2>/dev/null | python3 -c "
+import json, sys
+m = json.load(sys.stdin)
+print(f\"  Electricity:  {m['kwh']:.1f} kWh\")
+print(f\"  Carbon:       {m['kgCO2e']:.1f} kg CO2e\")
+print(f\"  Water:        {m['waterL']:.0f} L\")
+print(f\"  Calls:        {m['calls']}  Tokens: {m['tokens']:,}\")
+print(\"  Assumptions:  impact/config.json (see impact/README.md); edit there or in fpi-impact\")
+"
+    fi
+fi

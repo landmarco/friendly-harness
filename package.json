@@ -1,0 +1,42 @@
+{
+  "name": "friendly-harness",
+  "version": "1.0.0",
+  "description": "A portable pi workspace: skills, extensions, subagents, launchers, and project sessions.",
+  "keywords": [
+    "pi-package",
+    "pi",
+    "agent",
+    "harness",
+    "skills"
+  ],
+  "pi": {
+    "extensions": [
+      "./extensions"
+    ],
+    "skills": [
+      "./skills"
+    ]
+  },
+  "scripts": {
+    "start": "./bin/pi",
+    "fpi": "./bin/fpi",
+    "pi:update": "./bin/pi update --extensions",
+    "pi:update-self": "./bin/pi update --self",
+    "pi:list": "./bin/pi list",
+    "skill-lint": "./bin/skill-lint",
+    "feeds": "./skills/vault/rebuild-feeds.sh"
+  },
+  "license": "GPL-3.0-or-later",
+  "type": "module",
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/landmarco/friendly-harness.git"
+  },
+  "homepage": "https://github.com/landmarco/friendly-harness#readme",
+  "bugs": {
+    "url": "https://github.com/landmarco/friendly-harness/issues"
+  }
+}

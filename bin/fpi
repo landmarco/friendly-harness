@@ -1,0 +1,347 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Friendly Harness - unified launcher.
+#
+#   fpi [PROJECT] [-- pi-options...]       supervised session in your checkout
+#   fpi --worktree PROJECT TASK [-- pi...] isolated worktree session
+#   fpi --attach [PROJECT [TASK]]          join one, menu, or create
+#   fpi --list                             show running Friendly Harness sessions
+#   fpi --help
+#
+# Every session runs inside a marked tmux session, so anything you start is
+# attachable later from any terminal/SSH by name, project, or task. Legacy
+# `fpi-romp` and `fpi-attach` remain as thin shims over --worktree / --attach.
+
+HARNESS_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+# shellcheck source=lib/fpi-common.sh
+source "$HARNESS_DIR/bin/lib/fpi-common.sh"
+fh_init
+fh_require_pi
+LAUNCHER="$HARNESS_DIR/bin/fpi"
+
+usage() {
+    cat <<'EOF'
+Usage:
+  fpi [PROJECT] [-- pi options...]
+      Supervised session in your checkout. PROJECT is a name under
+      ~/codetools or an absolute path (default: current directory). Runs
+      inside a marked tmux session so it is attachable later.
+
+  fpi --new PATH [-- pi options...]
+      Create a brand-new project and open a supervised session in it.
+      A bare NAME is created under ~/codetools; an absolute path may
+      point anywhere. Creates the directory and git-inits it, seeds
+      instruction files from the harness (as an initial commit), then
+      behaves like `fpi PATH`.
+
+  fpi --worktree PROJECT TASK [-- pi options...]
+      Isolated worktree session on branch pi/<task>. Resumes an existing
+      worktree/session for the same project+task instead of failing.
+
+  fpi --attach [PROJECT [TASK]]
+      Attach to a running Friendly Harness session. With PROJECT [TASK],
+      join that session or create it. With no arguments, shows a menu of
+      every running Friendly Harness session.
+
+  fpi --list
+      List running Friendly Harness sessions (project, task, session id).
+
+Legacy aliases, still available: fpi-romp, fpi-attach (incl. -r / -l / -h).
+
+pi options go after `--` (e.g. -p "initial prompt"). Detach with Ctrl+B D;
+the session keeps running. Re-attach later with the same command.
+EOF
+}
+
+# --- run pi directly (no tmux available, or the in-session runner) -----------
+# Internal: runs pi inside the created tmux session. The outer fpi sets the
+# markers; this just lands in the right directory and starts pi.
+cmd_run_in_session() {
+    local dir="$1" mode="$2"
+    shift 2
+    cd "$dir" || exit 1
+    echo "Friendly Harness"
+    echo "Mode:    $mode"
+    echo "Project: $dir"
+    if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+        echo "Branch:  $(git branch --show-current)"
+        if [[ -n "$(git status --porcelain)" ]]; then
+            echo
+            echo "WARNING: working tree has uncommitted changes."
+            echo "Pi is told to treat these as your work and leave them alone."
+            git status --short
+        else
+            echo "Git:     clean"
+        fi
+    fi
+    echo
+    exec "$PI" "$@"
+}
+
+# Fallback when tmux is absent: run pi directly, non-attachable.
+fh_run_direct() {
+    local dir="$1" mode="$2"
+    shift 2
+    echo "Friendly Harness: tmux not available; $mode session will not be attachable." >&2
+    cd "$dir" || exit 1
+    fh_budget_gate
+    echo
+    exec "$PI" "$@"
+}
+
+# Attach to SESSION if it is a marked Friendly Harness session, else report the
+# collision and bail. Returns 1 when no usable session attaches.
+fh_attach_if_harness() {
+    if tmux has-session -t "$1" 2>/dev/null && fh_tmux_is_harness "$1"; then
+        fh_tmux_attach "$1"
+        return 0
+    fi
+    return 1
+}
+
+# --- supervised: join-or-create an attachable session in a checkout ---------
+# Create a brand-new project, then open a supervised session in it.
+fpi_new() {
+    local target="$1"
+    shift
+    [[ "$target" == /* ]] || target="$CODE_ROOT/$target"
+    if [[ -e "$target" ]]; then
+        echo "Friendly Harness: $target already exists." >&2
+        echo "Open it with:  fpi $target" >&2
+        exit 1
+    fi
+    mkdir -p "$target" || exit 1
+    if ! err="$(git -C "$target" init -q 2>&1)"; then
+        echo "Friendly Harness: git init failed:" >&2
+        echo "$err" >&2
+        echo "Continuing without git." >&2
+    fi
+    # Seed per-project instruction files from the harness (AGENTS.local.md etc.).
+    fh_copy_instruction_files "$HARNESS_DIR" "$target"
+    fh_seed_project_instructions "$HARNESS_DIR" "$target"
+    # Give the repo a HEAD: fpi --worktree branches from HEAD and a fresh
+    # git init has none. Commit only the seed files that are meant to travel;
+    # AGENTS.local.md stays untracked, it is machine-local like in the
+    # harness itself.
+    if git -C "$target" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+        local seed
+        for seed in AGENTS.md CLAUDE.md .tooling.md; do
+            [[ -f "$target/$seed" ]] && git -C "$target" add -- "$seed"
+        done
+        if ! git -C "$target" diff --cached --quiet; then
+            if ! err="$(git -C "$target" commit -q -m "Seed instruction files from friendly-harness" 2>&1)"; then
+                echo "Friendly Harness: could not create the initial commit:" >&2
+                echo "$err" >&2
+                echo "Set git user.name/user.email if unset. Until a first commit" >&2
+                echo "exists, fpi --worktree cannot branch off this repo." >&2
+            fi
+        fi
+    fi
+    echo "Friendly Harness: created project at $target."
+    fh_supervise "$target" "$@"
+}
+
+fh_supervise() {
+    local project="$1"
+    shift
+    local pkey session joined
+    project="$(fh_resolve_project "$project" 2>&1)" || { echo "$project" >&2; exit 1; }
+    pkey="$(fh_project_key "$project")"
+    session="$(fh_session_id supervised "$pkey")"
+
+    if fh_have_tmux; then
+        # 1. Exact (current-naming) session.
+        if tmux has-session -t "$session" 2>/dev/null; then
+            if fh_tmux_is_harness "$session"; then fh_tmux_attach "$session"; fi
+            echo "Session '$session' exists but is not a Friendly Harness session; not attaching." >&2
+            exit 1
+        fi
+        # 2. A marked session for this project under an older/different name.
+        joined="$(fh_tmux_find_by_metadata supervised "$pkey")"
+        if [[ -n "$joined" ]]; then
+            joined="${joined%%$'\n'*}"   # first match only
+            fh_tmux_attach "$joined"
+        fi
+        # 3. Create a new one.
+        fh_budget_gate
+        local create_cmd
+        create_cmd="$(printf '%q ' "$LAUNCHER" --_run-in-session "$project" supervised "$@")"
+        fh_tmux_create "$session" "$project" "$create_cmd"
+        fh_tmux_set_marker "$session" \
+            kind friendly-harness version 1 mode supervised \
+            project "$project" project_key "$pkey" task_slug ""
+        echo "Friendly Harness: created session '$session'."
+        fh_tmux_attach "$session"
+    else
+        fh_run_direct "$project" supervised "$@"
+    fi
+}
+
+# --- worktree: join-or-create an isolated worktree session ------------------
+fh_worktree() {
+    local project_key="$1" task_name="$2"
+    shift 2
+    local project task_slug branch wt session joined
+    project="$(fh_resolve_project "$project_key" 2>&1)" || { echo "$project" >&2; exit 1; }
+    project_key="$(fh_project_key "$project")"
+    task_slug="$(fh_slug "$task_name")" || { echo "Friendly Harness: invalid task name: $task_name" >&2; exit 1; }
+    branch="$(fh_worktree_branch "$task_slug")"
+    wt="$(fh_worktree_path "$project_key" "$task_slug")"
+    session="$(fh_session_id worktree "$project_key" "$task_slug")"
+
+    if fh_have_tmux; then
+        # 1. Exact (current-naming) session.
+        if tmux has-session -t "$session" 2>/dev/null; then
+            if fh_tmux_is_harness "$session"; then fh_tmux_attach "$session"; fi
+            echo "Session '$session' exists but is not a Friendly Harness session; not attaching." >&2
+            exit 1
+        fi
+        # 2. A marked session for this project+task under an older name.
+        joined="$(fh_tmux_find_by_metadata worktree "$project_key" "$task_slug")"
+        if [[ -n "$joined" ]]; then
+            joined="${joined%%$'\n'*}"   # first match only
+            fh_tmux_attach "$joined"
+        fi
+    else
+        # No tmux: still prepare the worktree, then run pi directly in it.
+        fh_ensure_worktree "$project" "$project_key" "$task_slug" "$branch" "$wt"
+        fh_run_direct "$wt" worktree "$@"
+        return
+    fi
+
+    # Fresh worktree only if the directory is missing (resumes an existing one).
+    [[ -e "$wt" ]] || fh_ensure_worktree "$project" "$project_key" "$task_slug" "$branch" "$wt"
+
+    # Gate before opening any pi window, whether fresh or resumed.
+    fh_budget_gate
+    local create_cmd
+    create_cmd="$(printf '%q ' "$LAUNCHER" --_run-in-session "$wt" worktree "$@")"
+    fh_tmux_create "$session" "$wt" "$create_cmd"
+    fh_tmux_set_marker "$session" \
+        kind friendly-harness version 1 mode worktree \
+        project "$project" project_key "$project_key" task_slug "$task_slug"
+    echo "Friendly Harness: created session '$session'."
+    fh_tmux_attach "$session"
+}
+
+# Create a fresh worktree (git worktree add + carry instruction files).
+fh_ensure_worktree() {
+    local project="$1" project_key="$2" task_slug="$3" branch="$4" wt="$5"
+    if ! git -C "$project" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+        echo "Friendly Harness: not a Git repository:" >&2
+        echo "  $project" >&2
+        exit 1
+    fi
+    if git -C "$project" show-ref --verify --quiet "refs/heads/$branch"; then
+        echo "Branch already exists: $branch" >&2
+        echo "Pick another task name, or delete the branch yourself if it is spent." >&2
+        exit 1
+    fi
+    mkdir -p "$(dirname "$wt")"
+    git -C "$project" worktree add -b "$branch" "$wt" HEAD
+    fh_copy_instruction_files "$project" "$wt"
+    echo "Friendly Harness: worktree ready at $wt (branch $branch)."
+}
+
+# --- list --------------------------------------------------------------------
+fpi_list() {
+    local sess
+    sess="$(fh_tmux_list_harness_sessions)"
+    if ! fh_have_tmux || [[ -z "$sess" ]]; then
+        echo "No Friendly Harness sessions running."
+        echo "Start one:  fpi <project>    or    fpi --worktree <project> <task>"
+        return 0
+    fi
+    echo "Friendly Harness sessions:"
+    while IFS='|' read -r name mode project task attached; do
+        printf '  %-55s  %-10s  %-20s  %s\n' "$name" "$mode" "$project" "${task:--}"
+    done <<<"$sess"
+}
+
+# --- attach ------------------------------------------------------------------
+fpi_attach() {
+    local project="" task="" a
+    local -a rest=()
+    local dd=0
+    for a in "$@"; do
+        if (( dd )); then rest+=("$a"); continue; fi
+        if [[ "$a" == "--" ]]; then dd=1; continue; fi
+        if [[ -z "$project" ]]; then project="$a"
+        elif [[ -z "$task" ]]; then task="$a"
+        else rest+=("$a"); fi
+    done
+
+    if [[ -z "$project" ]]; then
+        # No project: menu of every running harness session.
+        local sess i sel line name mode p t
+        sess="$(fh_tmux_list_harness_sessions)"
+        if [[ -z "$sess" ]]; then
+            fpi_list
+            echo "Nothing to attach to."
+            return 0
+        fi
+        i=0
+        declare -a names=()
+        while IFS='|' read -r line; do
+            IFS='|' read -r name mode p t a <<<"$line"
+            i=$((i + 1))
+            names+=("$name")
+            printf '  %2d)  %-10s  %-20s  %s\n' "$i" "$mode" "$p" "${t:--}"
+        done <<<"$sess"
+        if [[ ! -t 0 ]]; then
+            echo "Multiple sessions; pass one explicitly: fpi --attach PROJECT [TASK]." >&2
+            return 1
+        fi
+        read -rp "Choose session: " sel
+        [[ "$sel" =~ ^[0-9]+$ && "$sel" -ge 1 && "$sel" -le "$i" ]] \
+            || { echo "Invalid selection: $sel" >&2; return 1; }
+        fh_tmux_attach "${names[$((sel - 1))]}"
+    elif [[ -n "$task" ]]; then
+        fh_worktree "$project" "$task" "${rest[@]}"
+    else
+        fh_supervise "$project" "${rest[@]}"
+    fi
+}
+
+# --- CLI dispatch ------------------------------------------------------------
+case "${1:-}" in
+    --worktree|-w|--romp|-r)
+        shift
+        [[ $# -ge 2 ]] || { echo "fpi: --worktree needs PROJECT TASK" >&2; usage >&2; exit 1; }
+        project="$1"; task="$2"; shift 2
+        [[ "${1:-}" == "--" ]] && shift
+        fh_worktree "$project" "$task" "$@"
+        ;;
+    --new|-n)
+        shift
+        [[ $# -ge 1 ]] || { echo "fpi: --new needs a PATH or NAME" >&2; usage >&2; exit 1; }
+        project="$1"; shift
+        [[ "${1:-}" == "--" ]] && shift
+        fpi_new "$project" "$@"
+        ;;
+    --attach|-a)
+        shift
+        fpi_attach "$@"
+        ;;
+    --list|-l)
+        fpi_list
+        ;;
+    --help|-h)
+        usage
+        ;;
+    --_run-in-session)
+        shift
+        cmd_run_in_session "$@"
+        ;;
+    -*)
+        # A leading pi option with no project: supervise the current directory.
+        fh_supervise "$PWD" "$@"
+        ;;
+    "")
+        fh_supervise "$PWD"
+        ;;
+    *)
+        fh_supervise "$1" "${@:2}"
+        ;;
+esac

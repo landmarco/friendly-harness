@@ -1,0 +1,31 @@
+{
+  "_comment": "Built-in default assumptions. Do not edit here - edit impact/config.json, or use the Assumptions tab in fpi-impact (which saves to config.json and can revert to these defaults).",
+  "location": {
+    "place": "",
+    "state": ""
+  },
+  "providerRegions": {
+    "default": "us",
+    "openrouter": "us",
+    "openai-codex": "us",
+    "anthropic": "us"
+  },
+  "models": {},
+  "prefixProfiles": {
+    "openai-codex": "frontier_model",
+    "ollama": "efficient_small_model",
+    "local": "efficient_small_model"
+  },
+  "defaultProfile": "frontier_model",
+  "water": {
+    "typicalLPerKWh": 1.5,
+    "minLPerKWh": 0.7,
+    "maxLPerKWh": 3.0
+  },
+  "games": {
+    "cyberpunk-2077": {
+      "label": "Cyberpunk 2077 (high-end rig, 4K ultra)",
+      "watts": 400
+    }
+  }
+}

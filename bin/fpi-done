@@ -1,0 +1,100 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Clean up worktrees created by fpi --worktree (formerly fpi-romp).
+# Refuses to throw away work.
+
+HARNESS_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+# shellcheck source=lib/fpi-common.sh
+source "$HARNESS_DIR/bin/lib/fpi-common.sh"
+fh_init
+WORKTREE_ROOT="$CODE_ROOT/.worktrees"
+
+usage() {
+    echo "Usage:"
+    echo "  fpi-done --list                       show all pi worktrees"
+    echo "  fpi-done PROJECT TASK [options]       remove one worktree"
+    echo
+    echo "Options:"
+    echo "  --delete-branch   also delete pi/TASK (only if merged)"
+    echo "  --force           remove even with uncommitted changes"
+}
+
+list_worktrees() {
+    if [[ ! -d "$WORKTREE_ROOT" ]] || [[ -z "$(ls -A "$WORKTREE_ROOT" 2>/dev/null)" ]]; then
+        echo "No worktrees under $WORKTREE_ROOT"
+        return
+    fi
+    local wt project branch dirty
+    while IFS= read -r wt; do
+        project="$(basename "$(dirname "$wt")")"
+        branch="$(git -C "$wt" branch --show-current 2>/dev/null || echo '?')"
+        dirty="clean"
+        [[ -n "$(git -C "$wt" status --porcelain 2>/dev/null)" ]] && dirty="UNCOMMITTED CHANGES"
+        printf '%-12s %-24s %-22s %s\n' "$project" "$(basename "$wt")" "$branch" "$dirty"
+    done < <(find "$WORKTREE_ROOT" -mindepth 2 -maxdepth 2 -type d | sort)
+}
+
+[[ $# -eq 0 ]] && { usage; exit 1; }
+[[ "$1" == "--list" || "$1" == "-l" ]] && { list_worktrees; exit 0; }
+[[ "$1" == "--help" || "$1" == "-h" ]] && { usage; exit 0; }
+[[ $# -lt 2 ]] && { usage; exit 1; }
+
+PROJECT_NAME="$1"
+TASK_NAME="$2"
+shift 2
+
+DELETE_BRANCH=0
+FORCE=0
+for arg in "$@"; do
+    case "$arg" in
+        --delete-branch) DELETE_BRANCH=1 ;;
+        --force) FORCE=1 ;;
+        *) echo "Unknown option: $arg"; usage; exit 1 ;;
+    esac
+done
+
+PROJECT="$CODE_ROOT/$PROJECT_NAME"
+
+# Resolve the worktree path: prefer the slugged name (unified naming), then
+# fall back to the exact name for worktrees created before the naming unified.
+TASK_SLUG="$(fh_slug "$TASK_NAME" 2>/dev/null || printf '%s' "$TASK_NAME")"
+WORKTREE="$WORKTREE_ROOT/$PROJECT_NAME/$TASK_SLUG"
+[[ -d "$WORKTREE" ]] || WORKTREE="$WORKTREE_ROOT/$PROJECT_NAME/$TASK_NAME"
+BRANCH="pi/$TASK_SLUG"
+
+[[ -d "$WORKTREE" ]] || { echo "No such worktree: $WORKTREE"; exit 1; }
+
+# External projects (outside $CODE_ROOT) are keyed ext@<hash> and have no
+# matching directory under $CODE_ROOT; recover the real main repo path from
+# the worktree's git dir instead.
+if [[ ! -d "$PROJECT" ]]; then
+    PROJECT="$(git -C "$WORKTREE" rev-parse --git-common-dir 2>/dev/null)"
+    [[ -n "$PROJECT" ]] && PROJECT="$(cd "$(dirname "$PROJECT")" && pwd -P)"
+    if [[ ! -d "$PROJECT" ]]; then
+        echo "No main repo found for worktree $WORKTREE" >&2
+        exit 1
+    fi
+fi
+if [[ -n "$(git -C "$WORKTREE" status --porcelain)" && "$FORCE" -eq 0 ]]; then
+    echo "Worktree has uncommitted changes:"
+    git -C "$WORKTREE" status --short
+    echo
+    echo "Commit them, or re-run with --force to discard."
+    exit 1
+fi
+
+REMOVE_ARGS=()
+[[ "$FORCE" -eq 1 ]] && REMOVE_ARGS+=(--force)
+git -C "$PROJECT" worktree remove "${REMOVE_ARGS[@]+"${REMOVE_ARGS[@]}"}" "$WORKTREE"
+echo "Removed worktree: $WORKTREE"
+rmdir "$WORKTREE_ROOT/$PROJECT_NAME" 2>/dev/null || true
+
+if [[ "$DELETE_BRANCH" -eq 1 ]]; then
+    if git -C "$PROJECT" branch -d "$BRANCH" 2>/dev/null; then
+        echo "Deleted branch: $BRANCH"
+    else
+        echo "Kept branch $BRANCH - it has unmerged commits."
+        echo "Delete it deliberately with: git -C $PROJECT branch -D $BRANCH"
+    fi
+fi
