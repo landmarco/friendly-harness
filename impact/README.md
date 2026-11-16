@@ -44,8 +44,9 @@ Edit any of these in `impact/config.json`, or live in the fpi-impact
 
 - Raw usage rows (tokens + cost per call) come from pi session JSONL files and
   the pi-subagents sqlite. The `impact-cost` extension appends each session
-  call to the gitignored ledger as it happens; `fpi-impact --sync` rescans
-  session files to catch anything from before the extension existed.
+  call to the gitignored ledger as it happens; `fpi-impact` rescans session
+  files each time it starts the server, to catch anything from before the
+  extension existed.
 - Impact values are **derived at display time** from the raw rows and the
   current config, so editing an assumption re-computes every report - past
   reports included. This is why the ledger stores tokens, not kWh.
@@ -55,17 +56,31 @@ Edit any of these in `impact/config.json`, or live in the fpi-impact
 ## Commands
 
 ```bash
-fpi-cost              # monthly $ report now includes kWh / kgCO2e / water
-fpi-impact            # open the browser dashboard (data is synced first)
-fpi-impact --stop     # stop the background dashboard server
+fpi-cost                      # monthly $ report now includes kWh / kgCO2e / water
+fpi-impact                    # open the browser dashboard (data is synced first)
+fpi-impact friendly-harness   # same, scoped to one repo
+fpi-impact --url [project]    # print the dashboard URL
+fpi-impact --stop             # stop the background dashboard server
 ```
+
+A project name matches against each row's `cwd` and session-dir name, so a
+bare repo name catches its worktrees too: `fpi-impact friendly-harness` counts
+sessions in `~/codetools/friendly-harness` and in every
+`~/codetools/.worktrees/friendly-harness-*`.
 
 ## Dashboard
 
 `fpi-impact` renders a d3.js dashboard on `127.0.0.1:8731`:
 
+- **Scope** - with `?project=<name>` (set by `fpi-impact <project>`) every
+  tab covers only that repo; the topbar chip names the scope and links back to
+  the whole dataset.
 - **Totals** - stat cards and real-world comparisons for the selected period
   (all time, year, month, week, last day, or custom calendar range).
+- **Labels** - models read as their short name (`deepseek-v4-flash-0731`),
+  projects as the directory below `~/codetools` (`friendly-harness`,
+  `friendly-harness-fix-subagents` for a worktree). Home and code-root parents
+  never appear; the two historical worktree layouts fold into one label.
 - **Trend** - one metric toggle (cost / carbon / electricity / water) drives
   the usage breakout flow, usage over time, and by-project / by-model bars.
 - **Assumptions** - edit assumptions with live recompute; saves to

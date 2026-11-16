@@ -3,10 +3,13 @@ set -euo pipefail
 
 # Friendly Harness - impact dashboard.
 #
-#   fpi-impact            sync usage into the ledger, start the dashboard
-#                         server (background), open it in the browser
-#   fpi-impact --stop     stop the background dashboard server
-#   fpi-impact --url      print the dashboard URL (server must be running)
+#   fpi-impact                sync usage into the ledger, start the dashboard
+#                             server (background), open it in the browser
+#   fpi-impact <project>      same, scoped to one repo - every session whose
+#                             cwd or session dir names that project, including
+#                             worktrees under ~/codetools/.worktrees/
+#   fpi-impact --stop         stop the background dashboard server
+#   fpi-impact --url [proj]   print the dashboard URL (server must be running)
 #
 # The dashboard reads impact/config.json for assumptions; edits made in the
 # Assumptions tab save back to that file.
@@ -17,11 +20,32 @@ PORT="${FPI_IMPACT_PORT:-8731}"
 PID_FILE="$IMPACT_DIR/.server.pid"
 URL="http://127.0.0.1:$PORT"
 
+usage() {
+    cat >&2 <<'EOF'
+usage: fpi-impact [project]
+       fpi-impact --url [project]
+       fpi-impact --stop
+EOF
+    exit 1
+}
+
 server_running() {
     [[ -f "$PID_FILE" ]] || return 1
     local pid
     pid="$(cat "$PID_FILE" 2>/dev/null || true)"
     [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null
+}
+
+# Dashboard URL, optionally scoped to one project. Scoping is a query param:
+# the server filters rows by project name, so the worktree sessions count.
+dashboard_url() {
+    if [[ -z "${1:-}" ]]; then
+        printf '%s' "$URL"
+        return
+    fi
+    local enc
+    enc="$(node -e 'process.stdout.write(encodeURIComponent(process.argv[1]))' "$1")"
+    printf '%s/?project=%s' "$URL" "$enc"
 }
 
 start_server() {
@@ -41,6 +65,14 @@ start_server() {
     exit 1
 }
 
+open_url() {
+    if command -v xdg-open >/dev/null 2>&1; then
+        xdg-open "$1" >/dev/null 2>&1 &
+    elif command -v open >/dev/null 2>&1; then
+        open "$1" >/dev/null 2>&1 &
+    fi
+}
+
 case "${1:-}" in
     --stop)
         if server_running; then
@@ -53,21 +85,28 @@ case "${1:-}" in
         ;;
     --url)
         server_running || { echo "fpi-impact: server not running; start with fpi-impact" >&2; exit 1; }
-        echo "$URL"
+        dashboard_url "${2:-}"
+        echo
+        ;;
+    -h|--help)
+        usage
+        ;;
+    -*)
+        usage
         ;;
     "")
         if ! server_running; then
             start_server
         fi
         echo "Friendly Harness impact dashboard: $URL"
-        if command -v xdg-open >/dev/null 2>&1; then
-            xdg-open "$URL" >/dev/null 2>&1 &
-        elif command -v open >/dev/null 2>&1; then
-            open "$URL" >/dev/null 2>&1 &
-        fi
+        open_url "$URL"
         ;;
     *)
-        echo "usage: fpi-impact [--stop|--url]" >&2
-        exit 1
+        if ! server_running; then
+            start_server
+        fi
+        target="$(dashboard_url "$1")"
+        echo "Friendly Harness impact dashboard (project: $1): $target"
+        open_url "$target"
         ;;
 esac

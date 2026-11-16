@@ -5,7 +5,8 @@
  *
  * GET  /                 report.html
  * GET  /vendor/d3.min.js vendored d3 (no CDN dependency)
- * GET  /api/data         full dataset + totals (engine computed)
+ * GET  /api/data         dataset + totals; ?project= scopes to one repo
+ *                        (worktrees included), ?from=/?to= to a date range
  * GET  /api/health       liveness probe
  * PUT  /api/config       save config overrides (persists to config.json)
  * PUT  /api/config/reset restore built-in defaults
@@ -100,18 +101,22 @@ createServer(async (req, res) => {
     try {
       const from = url.searchParams.get("from");
       const to = url.searchParams.get("to");
+      const project = (url.searchParams.get("project") || "").trim();
       const { sessionRows, subagentRows } = core.allRows();
       const all = [...sessionRows, ...subagentRows];
+      const scoped = core.withinProject(all, project);
+      const rows = withinRange(scoped, from, to);
       const config = core.loadConfig();
       return send(res, 200, JSON.stringify({
         generated: new Date().toISOString(),
+        project: { name: project || null, rows: scoped.length },
         config,
         defaults: core.loadDefaults(),
         states: core.loadStates(),
         profiles: core.loadProfiles(),
-        rows: withinRange(all, from, to),
-        range: dataRange(all),
-        totals: computeTotals(withinRange(all, from, to), config),
+        rows,
+        range: dataRange(scoped),
+        totals: computeTotals(rows, config),
         assumptions: core.assumptionsList(),
       }), MIME[".json"]);
     } catch (err) { return send(res, 500, JSON.stringify({ error: String(err) }), MIME[".json"]); }
@@ -124,7 +129,7 @@ createServer(async (req, res) => {
     try {
       const { sessionRows, subagentRows } = core.allRows();
       const all = withinRange(
-        [...sessionRows, ...subagentRows],
+        core.withinProject([...sessionRows, ...subagentRows], body.project),
         body.from,
         body.to
       );

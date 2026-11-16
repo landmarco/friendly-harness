@@ -298,6 +298,83 @@ export function allRows() {
 }
 
 // ---------------------------------------------------------------------------
+// Model identity
+// ---------------------------------------------------------------------------
+
+/** Canonical `provider/model` id for a row. Session files store model as
+ *  `deepseek/x` with the provider alongside; subagent rows store the fully
+ *  qualified `openrouter/deepseek/x`. Grouping on the raw string splits one
+ *  model into two entries, so collapse the doubled provider here instead. */
+export function modelKey(model, provider) {
+  const m = String(model || "").trim();
+  if (!m) return "unknown";
+  const p = String(provider || "").trim() || m.split("/")[0];
+  return m === p || m.startsWith(p + "/") ? m : `${p}/${m}`;
+}
+
+// ---------------------------------------------------------------------------
+// Project scope
+// ---------------------------------------------------------------------------
+
+/** Dash-split tokens for a location. cwd arrives either as a real path
+ *  (/home/dillo/codetools/friendly-harness) or as pi's munged session-dir name
+ *  (--home-dillo-codetools-friendly-harness--); both reduce to the same tokens
+ *  once punctuation goes. */
+function nameTokens(text) {
+  return String(text || "").toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+}
+
+/** True when the project name appears as a token run in the row's cwd or
+ *  project. Worktrees live in ~/codetools/.worktrees/<project>-<task>, so a
+ *  prefix hit there counts as the project too. */
+export function matchesProject(row, query) {
+  const want = nameTokens(query);
+  if (!want.length) return true;
+  const have = nameTokens(`${row.cwd || ""} ${row.project || ""}`);
+  for (let i = 0; i + want.length <= have.length; i++) {
+    if (want.every((t, j) => have[i + j] === t)) return true;
+  }
+  return false;
+}
+
+/** Filter rows to one project. Empty query keeps everything. */
+export function withinProject(rows, query) {
+  const q = String(query || "").trim();
+  return q ? rows.filter((r) => matchesProject(r, q)) : rows;
+}
+
+/** Munged forms of the parent dirs that are never a project label: the code
+ *  root (~/codetools, or FH_CODE_ROOT) and the home dir. Longest first. */
+function parentPrefixes() {
+  const home = homedir();
+  const root = process.env.FH_CODE_ROOT || join(home, "codetools");
+  const munge = (p) => p.replace(/^\/+|\/+$/g, "").replace(/\//g, "-");
+  return [munge(root) + "-", munge(home) + "-"];
+}
+
+/** Short project label: the directory the session ran in, parent dirs dropped.
+ *  A real cwd keeps everything below .worktrees (joined with dashes); a munged
+ *  session-dir name loses the home/code-root prefix and the .worktrees marker.
+ *  Both arrive at the same label: `--home-dillo-codetools-friendly-harness--`,
+ *  `home-dillo-codetools-friendly-harness` and the real
+ *  `/home/dillo/codetools/friendly-harness` read as `friendly-harness`, and
+ *  `.worktrees/friendly-harness/fix-subagents` reads as
+ *  `friendly-harness-fix-subagents` whichever spelling it came from. */
+export function projectKey(row) {
+  const raw = String(row.cwd || row.project || "").replace(/^--|--$/g, "");
+  if (!raw) return "other";
+  const parts = raw.split("/");
+  const wt = parts.lastIndexOf(".worktrees");
+  let label;
+  if (wt >= 0) label = parts.slice(wt + 1).filter(Boolean).join("-");
+  else if (parts.length > 1) label = parts.filter(Boolean).pop();
+  else label = raw;
+  for (const prefix of parentPrefixes()) label = label.replace(prefix, "");
+  label = label.replace(/^\.worktrees[-_.]?/, "");
+  return label.replace(/^[-._]+/, "") || "other";
+}
+
+// ---------------------------------------------------------------------------
 // Aggregates
 // ---------------------------------------------------------------------------
 
@@ -318,19 +395,19 @@ export function byDay(rows, config = loadConfig()) {
 }
 
 export function byModel(rows, config = loadConfig()) {
-  return aggregate(rows, (r) => r.model || "unknown", config);
+  return aggregate(rows, (r) => modelKey(r.model, r.provider), config);
 }
 
 export function byProject(rows, config = loadConfig()) {
-  return aggregate(rows, (r) => r.project || "other", config);
+  return aggregate(rows, (r) => projectKey(r), config);
 }
 
 /** Nested model -> project totals, for the flow graph. */
 export function byModelProject(rows, config = loadConfig()) {
   const out = {};
   for (const r of rows) {
-    const m = r.model || "unknown";
-    const p = r.project || "other";
+    const m = modelKey(r.model, r.provider);
+    const p = projectKey(r);
     const bucket = (out[m] ??= {});
     (bucket[p] ??= []).push(r);
   }
