@@ -110,18 +110,18 @@ fpi ~/codetools/some-existing-repo
 
 ## Daily use
 
-| Command                             | What it does                                                                 |
-| ----------------------------------- | ---------------------------------------------------------------------------- |
-| `fpi`                               | Supervised session in the current directory.                                 |
-| `fpi <project>`                     | Supervised session in a project under `~/codetools`, or at an absolute path. |
-| `fpi --new <name-or-path>`          | Create a project, seed `AGENTS.md`, commit, and open a session.              |
-| `fpi --worktree <project> <task>`   | Isolated worktree on branch `pi/<task>`.                                     |
-| `fpi --attach [<project> [<task>]]` | Join a running session, show a menu, or create one.                          |
-| `fpi --list`                        | List running harness sessions.                                               |
-| `fpi-done --list`                   | List worktrees.                                                              |
-| `fpi-done <project> <task>`         | Remove one worktree.                                                         |
-| `fpi-cost`                          | OpenRouter spend for the month, plus impact totals.                          |
-| `fpi-impact`                        | Local browser dashboard for cost, energy, carbon, and water.                 |
+| Command                             | What it does                                                                       |
+| ----------------------------------- | ---------------------------------------------------------------------------------- |
+| `fpi`                               | Supervised session in the current directory.                                       |
+| `fpi <project>`                     | Supervised session in a project under `~/codetools`, or at an absolute path.       |
+| `fpi --new <name-or-path>`          | Create a project, seed `AGENTS.md`, commit, and open a session.                    |
+| `fpi --worktree <project> <task>`   | Isolated worktree on branch `pi/<task>`.                                           |
+| `fpi --attach [<project> [<task>]]` | Join a running session, show a menu, or create one.                                |
+| `fpi --list`                        | List running harness sessions.                                                     |
+| `fpi-done --list`                   | List worktrees.                                                                    |
+| `fpi-done <project> <task>`         | Remove one worktree.                                                               |
+| `fpi-cost`                          | OpenRouter spend for the month, plus impact totals.                                |
+| `fpi-impact [project]`              | Local browser dashboard for cost, energy, carbon, and water (optionally one repo). |
 
 Pass pi options after `--`:
 
@@ -222,7 +222,8 @@ The `fpi` launchers warn past 75% and refuse to start past 100% unless
 ### Impact dashboard
 
 `fpi-impact` converts token usage into electricity, carbon, and water, and
-opens a local dashboard at `http://127.0.0.1:8731`. Raw rows live in
+opens a local dashboard at `http://127.0.0.1:8731`. `fpi-impact <project>`
+scopes it to one repo, worktrees included. Raw rows live in
 `impact/ledger.jsonl` (gitignored). Assumptions are editable in
 `impact/config.json`. Full math and sources: `impact/README.md`.
 

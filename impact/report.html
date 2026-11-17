@@ -16,6 +16,7 @@
         --text: #ececf1;
         --dim: #9a9aa6;
         --faint: #5e5e6b;
+        --chart-ink: #c6c6d2;
         --accent: #6ea8ff;
         --accent-dim: rgba(110, 168, 255, 0.14);
         --carbon: #ff9e64;
@@ -117,6 +118,26 @@
         50% {
           opacity: 0.35;
         }
+      }
+      .topbar .meta .scope {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 3px 10px;
+        border: 1px solid var(--border-strong);
+        border-radius: 999px;
+        background: var(--panel2);
+        color: var(--text);
+      }
+      .topbar .meta .scope[hidden] {
+        display: none;
+      }
+      .topbar .meta .scope a {
+        color: var(--dim);
+        text-decoration: none;
+      }
+      .topbar .meta .scope a:hover {
+        color: var(--text);
       }
       .mono {
         font-family: var(--mono);
@@ -271,24 +292,13 @@
         border-bottom: 1px solid var(--border);
         margin: 14px 0 12px;
       }
-      .split {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 20px;
-        margin-top: 12px;
-      }
-      @media (max-width: 900px) {
-        .split {
-          grid-template-columns: 1fr;
-        }
-      }
       .subhead {
         font-size: 11px;
         font-weight: 600;
         text-transform: uppercase;
         letter-spacing: 0.1em;
         color: var(--dim);
-        margin: 0 0 10px;
+        margin: 18px 0 10px;
       }
       .flow-label {
         font-family: var(--sans);
@@ -298,6 +308,9 @@
         font-family: var(--sans);
         font-size: 13px;
         font-weight: 600;
+        /* chunks are pastel, so the darker ink reads better here than the
+           brighter chart ink used by the axes */
+        fill: var(--faint);
       }
       .eq-unit {
         color: var(--faint);
@@ -324,8 +337,8 @@
         display: block;
       }
       svg text {
-        fill: var(--faint);
-        font-size: 11px;
+        fill: var(--chart-ink);
+        font-size: 11.5px;
         font-family: var(--mono);
         font-variant-numeric: tabular-nums;
       }
@@ -334,7 +347,7 @@
         stroke: var(--border);
       }
       svg .axis-title {
-        fill: var(--dim);
+        fill: var(--chart-ink);
         font-size: 11px;
         font-weight: 600;
         letter-spacing: 0.04em;
@@ -594,6 +607,7 @@
         Friendly Harness <span class="sub">Impact</span>
       </div>
       <div class="meta">
+        <span class="scope mono" id="scope-chip" hidden></span>
         <span class="live mono" id="sync-time">syncing…</span>
       </div>
     </div>
@@ -655,16 +669,10 @@
       <div class="panel">
         <h2 class="caps">Usage over time</h2>
         <div id="trend-chart"></div>
-        <div class="split">
-          <div>
-            <h3 class="subhead">By project</h3>
-            <div id="project-chart"></div>
-          </div>
-          <div>
-            <h3 class="subhead">By model</h3>
-            <div id="model-chart"></div>
-          </div>
-        </div>
+        <h3 class="subhead">By project</h3>
+        <div id="project-chart"></div>
+        <h3 class="subhead">By model</h3>
+        <div id="model-chart"></div>
         <div class="hint" id="trend-hint">
           The toggle above applies to the usage breakout, usage over time, by
           project, and by model.
@@ -891,6 +899,62 @@
       };
       let trendMetric = "cost";
 
+      /** One palette color per label, assigned in sorted order so a category
+       *  keeps its color when the metric or the ranking changes. */
+      function colorMap(labels) {
+        const sorted = [...new Set(labels)].sort();
+        return new Map(
+          sorted.map((label, i) => [label, palette[i % palette.length]])
+        );
+      }
+
+      /** Palette color per canonical model id over the whole model set, so the
+       *  flow nodes and the by-model bars agree. */
+      function modelColorMap() {
+        return colorMap(Object.keys(state.totals.byModel || {}));
+      }
+
+      /** Short model names, keeping one vendor segment only where two models
+       *  share a leaf name (same model reached through two providers). Keys
+       *  are canonical `provider/model` ids from the engine. */
+      function modelLabels(keys) {
+        const leaf = (k) => k.split("/").pop();
+        const seen = new Map();
+        for (const k of keys) seen.set(leaf(k), (seen.get(leaf(k)) || 0) + 1);
+        return new Map(
+          keys.map((k) => [
+            k,
+            seen.get(leaf(k)) > 1 ? k.split("/").slice(-2).join("/") : leaf(k),
+          ])
+        );
+      }
+
+      // ---- project scope (set by `fpi-impact <project>`) -------------------
+      const scope = (
+        new URLSearchParams(location.search).get("project") || ""
+      ).trim();
+
+      /** Chip naming the scope, with a link back to the whole dataset. */
+      function renderScope() {
+        const chip = d3.select("#scope-chip");
+        if (!scope) return chip.attr("hidden", true);
+        const info = (state.data && state.data.project) || {};
+        const matched = info.rows ?? null;
+        chip.attr("hidden", null).html("");
+        chip
+          .append("span")
+          .text(
+            matched === 0
+              ? `project: ${scope} (no sessions found)`
+              : `project: ${scope}`
+          );
+        chip
+          .append("a")
+          .attr("href", location.pathname)
+          .attr("title", "show all projects")
+          .text("×");
+      }
+
       // ---- time range (Totals tab) ----------------------------------------
       let range = { mode: "all", from: null, to: null };
       const isoDay = (d) =>
@@ -980,12 +1044,14 @@
         const q = new URLSearchParams();
         if (range.from) q.set("from", range.from);
         if (range.to) q.set("to", range.to);
+        if (scope) q.set("project", scope);
         const qs = q.toString();
         const res = await fetch("/api/data" + (qs ? "?" + qs : ""));
         if (!res.ok) throw new Error("failed to load /api/data");
         state.data = await res.json();
         state.config = structuredClone(state.data.config);
         state.totals = state.data.totals;
+        renderScope();
         syncRangeUI();
         d3.select("#metric-label").text(
           `showing ${METRICS[trendMetric].label.toLowerCase()} (${
@@ -1004,6 +1070,7 @@
             config: state.config,
             from: range.from || undefined,
             to: range.to || undefined,
+            project: scope || undefined,
           }),
         });
         if (!res.ok) throw new Error("compute failed");
@@ -1144,12 +1211,14 @@
       function verticalBars(sel, entries, m) {
         // entries: [{ label, value, total }] - vertical bars, value on the y
         // axis, category labels along the bottom x axis, metric-colored.
-        const width = 620,
-          height = 300;
+        // full panel width: long hyphenated labels need room to wrap into a
+        // line or two instead of a column of fragments
+        const width = Math.max(sel.node().clientWidth || 620, 620),
+          height = 320;
         const { g, chartW, chartH, padLeft } = baseSvg(sel, width, height, {
           padLeft: 68,
           padTop: 20,
-          padBottom: 74,
+          padBottom: 84,
         });
         const x = d3
           .scaleBand()
@@ -1161,6 +1230,8 @@
           .domain([0, d3.max(entries, (d) => d.value) || 1])
           .nice()
           .range([chartH, 0]);
+        const colorOf = colorMap(entries.map((e) => e.label));
+        const fillOf = (d) => d.color || colorOf.get(d.label);
         const bars = g
           .append("g")
           .selectAll("rect")
@@ -1171,7 +1242,7 @@
           .attr("y", chartH)
           .attr("height", 0)
           .attr("rx", 3)
-          .attr("fill", m.color);
+          .attr("fill", fillOf);
         bars
           .transition()
           .duration(500)
@@ -1182,9 +1253,11 @@
             showTip(
               e,
               `<span class="tt-title">${d.label}</span>` +
-                `<div class="tt-row"><em>${m.label}</em><b style="color:${
-                  m.color
-                }">${m.fmt(d.value)}</b></div>` +
+                `<div class="tt-row"><em>${
+                  m.label
+                }</em><b style="color:${fillOf(d)}">${m.fmt(
+                  d.value
+                )}</b></div>` +
                 `<div class="tt-row"><em>share</em><b>${(
                   (d.value / (d.total || 1)) *
                   100
@@ -1192,19 +1265,27 @@
             );
           })
           .on("mouseleave", hideTip);
+        // category labels wrap onto as many lines as the band allows, so
+        // long project slugs keep their distinguishing tail
         g.append("g")
           .attr("class", "axis")
           .attr("transform", `translate(0, ${chartH})`)
-          .call(
-            d3
-              .axisBottom(x)
-              .tickFormat((d) => truncate(String(d).split("/").pop(), 16))
-          )
+          .call(d3.axisBottom(x).tickFormat((d) => d))
           .selectAll("text")
-          .attr("transform", "rotate(-22)")
-          .attr("text-anchor", "end")
-          .attr("x", -4)
-          .attr("y", 6);
+          .attr("transform", null)
+          .attr("text-anchor", "middle")
+          .attr("dy", null)
+          .attr("y", 14)
+          .each(function (d) {
+            const sel = d3.select(this).text("");
+            wrapText(String(d), x.bandwidth() - 4).forEach((line, i) =>
+              sel
+                .append("tspan")
+                .attr("x", 0)
+                .attr("dy", i === 0 ? 0 : "1.15em")
+                .text(line)
+            );
+          });
         g.append("g").attr("class", "axis").call(d3.axisLeft(y).ticks(5));
         g.append("text")
           .attr("class", "axis-title")
@@ -1369,8 +1450,13 @@
           (a, b) => (b[1][trendMetric] || 0) - (a[1][trendMetric] || 0)
         );
         const total = state.totals[trendMetric] || 0;
-        const entries = byModel.map(([label, t]) => ({
-          label,
+        const labels = modelLabels(byModel.map(([key]) => key));
+        // colors come from the full model set (not this metric's ranking), so
+        // a model keeps its color and matches its node in the breakout chart
+        const modelColors = modelColorMap();
+        const entries = byModel.map(([key, t]) => ({
+          label: labels.get(key),
+          color: modelColors.get(key),
           value: t[trendMetric] || 0,
           total,
         }));
@@ -1393,20 +1479,31 @@
 
       // --------------------------------------------------------------- flow ----
       function wrapText(text, maxPx) {
-        // greedy word-wrap so labels fit inside their chunk
-        const words = String(text || "").split(/\s+/);
+        // greedy wrap on spaces, and on hyphens when a single word is too wide
+        // for the line - model and project labels are hyphenated slugs
+        const words = String(text || "")
+          .split(/\s+/)
+          .filter(Boolean);
+        const tokens = [];
+        for (const w of words) {
+          if (labelMeasure.measureText(w).width <= maxPx)
+            tokens.push({ t: w, space: true });
+          else
+            for (const piece of w.split(/(?<=-)/))
+              tokens.push({ t: piece, space: false });
+        }
         const lines = [];
         let line = "";
-        for (const w of words) {
-          const t = line ? line + " " + w : w;
-          if (labelMeasure.measureText(t).width <= maxPx || !line) line = t;
-          else {
+        for (const tok of tokens) {
+          const sep = !line || line.endsWith("-") ? "" : tok.space ? " " : "";
+          const next = line + sep + tok.t;
+          if (line && labelMeasure.measureText(next).width > maxPx) {
             lines.push(line);
-            line = w;
-          }
+            line = tok.t;
+          } else line = next;
         }
         if (line) lines.push(line);
-        return lines;
+        return lines.length ? lines : [""];
       }
 
       function renderFlow() {
@@ -1440,6 +1537,7 @@
           .filter((m) => m.total > 0)
           .sort((a, b) => b.total - a.total)
           .slice(0, 8);
+        const labels = modelLabels(models.map((m) => m.model));
 
         // full desktop width; total column height only grows going right
         const containerW = d3.select("#flow-chart").node().clientWidth || 1300;
@@ -1465,14 +1563,16 @@
           value: grandTotal,
           color: "#9aa3b2",
         });
+        const modelColors = modelColorMap();
         models.forEach((m, mi) => {
           const id = "m" + mi;
+          const color = modelColors.get(m.model);
           nodes.push({
             id,
-            name: m.model.split("/").pop(),
+            name: labels.get(m.model),
             col: 1,
             value: m.total,
-            color: palette[mi % palette.length],
+            color,
           });
           links.push({ source: "all", target: id, value: m.total });
           m.entries.forEach((e, ei) => {
@@ -1482,7 +1582,7 @@
               name: e.name,
               col: 2,
               value: e.value,
-              color: palette[mi % palette.length],
+              color,
             });
             links.push({ source: id, target: pid, value: e.value });
           });
@@ -1645,7 +1745,6 @@
           .attr("class", "flow-name")
           .attr("text-anchor", "middle")
           .attr("font-size", fontPx)
-          .attr("fill", "var(--bg)")
           .each(function (n) {
             const el = d3.select(this);
             const cx = colX[n.col] + colW[n.col] / 2;
@@ -1663,14 +1762,9 @@
               .attr("y", ty + n.lines.length * 17)
               .attr("font-size", 11)
               .attr("font-weight", 500)
-              .attr("fill", "var(--bg)")
               .attr("fill-opacity", 0.8)
               .text(`${((n.value / grandTotal) * 100).toFixed(1)}%`);
           });
-      }
-
-      function truncate(s, n) {
-        return s && s.length > n ? s.slice(0, n - 1) + "…" : s;
       }
 
       // ---------------------------------------------------------- assumptions ----
@@ -1997,10 +2091,16 @@
         d3.selectAll(".tab").classed("active", false);
         d3.select(this).classed("active", true);
         d3.selectAll(".section").classed("active", false);
-        d3.select("#sec-" + d3.select(this).attr("data-tab")).classed(
-          "active",
-          true
-        );
+        const tab = d3.select(this).attr("data-tab");
+        d3.select("#sec-" + tab).classed("active", true);
+        // charts size themselves off their container, which measures 0 while
+        // the section is hidden - redraw them now that it is visible
+        if (tab === "trend" && state.totals) {
+          renderFlow();
+          renderTrend();
+          renderProjectChart();
+          renderModelChart();
+        }
       });
 
       d3.selectAll("#metric-tabs .mbtn").on("click", function () {
