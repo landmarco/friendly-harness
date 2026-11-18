@@ -34,9 +34,9 @@
     "{\"source\":\"npm:pi-mono-ask-user-question\",\"scope\":\"user\"}": "1.8.0",
     "{\"source\":\"npm:pi-mono-loop\",\"scope\":\"user\"}": "1.7.3",
     "{\"source\":\"npm:pi-mono-usage\",\"scope\":\"user\"}": "0.2.0",
-    "{\"source\":\"npm:pi-rewind-hook\",\"scope\":\"user\"}": "1.8.7",
+    "{\"source\":\"npm:pi-rewind-hook\",\"scope\":\"user\"}": "1.8.9",
     "{\"source\":\"npm:pi-autoresearch\",\"scope\":\"user\"}": "1.9.0",
-    "{\"source\":\"npm:pi-mcp-adapter\",\"scope\":\"user\"}": "5.4.0",
+    "{\"source\":\"npm:pi-mcp-adapter\",\"scope\":\"user\"}": "7.0.1",
     "{\"source\":\"npm:pi-subagents-j0k3r\",\"scope\":\"user\"}": "1.6.1"
   }
 }

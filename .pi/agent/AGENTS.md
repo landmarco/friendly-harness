@@ -14,7 +14,9 @@ Layout and dependencies: the harness `README.md`.
   editable parts. Update add-ons with `./bin/pi update --extensions`.
 - Skills live in `skills/`, the one place to edit them. pi points at that dir
   with `--skill "$root/skills"` in `bin/pi`; Cursor and Claude Code reach it
-  through the `.cursor/skills` and `.claude/skills` symlinks.
+  through the `.cursor/skills` and `.claude/skills` symlinks. Project
+  `.pi/settings.json` excludes auto-discovered `.agents/skills`, which Codex
+  Desktop recreates as a copy of `skills/` and pi would otherwise load first.
 - `fpi <project>` opens the real checkout. `fpi --worktree <project> <task>`
   opens an isolated worktree (legacy: `fpi-romp`). `fpi --attach` joins any
   running harness session. `fpi-done` removes worktrees, `fpi-cost` reports

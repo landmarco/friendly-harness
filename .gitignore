@@ -25,6 +25,7 @@ AGENTS.local.md
 mcp-cache.json
 mcp-npx-cache.json
 mcp-onboarding.json
+mcp-last-seen-version.json
 skills-lock.json
 .skill-lock.json
 models-store.json

@@ -183,10 +183,17 @@ It does not replace pi; it is a wrapper.
 | `.pi/agent/settings.json`  | Default model, thinking level, packages, enabled models. |
 | `.pi/agent/models.json`    | Extra providers and local models.                        |
 | `.pi/agent/subagents.json` | Subagent models, timeouts, and tool defaults.            |
+| `.pi/settings.json`        | Project overrides. Excludes `.agents/skills` duplicates. |
 
 `skills/` is the only place to edit skills. Cursor and Claude Code reach it
 through the `.cursor/skills` and `.claude/skills` symlinks. pi loads it through
 `--skill "$root/skills"` in `bin/pi`.
+
+`.pi/settings.json` excludes auto-discovered `.agents/skills` (`!skills/**`).
+That directory is not part of the harness: Codex Desktop recreates it when it
+imports a session here, copying `skills/` into it, and pi loads that copy first
+because it scans `.agents/skills` before `--skill` paths. The exclusion keeps
+`skills/` authoritative.
 
 Some skills in this repo are examples from the author's projects
 (`realness-design`, `test-coverage`, `vuetify-to-semantic`, `zoom-to-ableton`,
