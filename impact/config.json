@@ -19,6 +19,13 @@
     "local": "efficient_small_model"
   },
   "defaultProfile": "frontier_model",
+  "billing": {
+    "_comment": "Multiplier on pi's list price, per provider or provider/model: 1 = full list price, 0 = covered by credits or a subscription. Edit on the Assumptions tab.",
+    "default": 1,
+    "models": {
+      "openai-codex": 0
+    }
+  },
   "water": {
     "typicalLPerKWh": 1.5,
     "minLPerKWh": 0.7,

@@ -17,6 +17,10 @@
     "local": "efficient_small_model"
   },
   "defaultProfile": "frontier_model",
+  "billing": {
+    "default": 1,
+    "models": {}
+  },
   "water": {
     "typicalLPerKWh": 1.5,
     "minLPerKWh": 0.7,

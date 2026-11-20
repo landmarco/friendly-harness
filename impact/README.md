@@ -35,6 +35,17 @@ ledger, and renders a browser dashboard (`fpi-impact`).
    electricity-generation water.
 5. **Gaming comparisons** assume a high-end gaming PC at the wall:
    Cyberpunk 2077 ~400 W. Editable in `config.json:games`.
+6. **Cost is an input, not our math.** Each row stores the figure pi computed
+   from the model's published per-token price (input, output, cache read/write,
+   plus long-context tiers), from pi's built-in model table or
+   `.pi/agent/models.json`. That is list price: what those tokens would cost
+   without credits. Change a price in `models.json` and future rows follow it;
+   past rows keep the price they were recorded at.
+7. **Billed cost** applies `config.json:billing`, a multiplier per provider or
+   `provider/model` (1 = full list price, 0 = credits or a subscription covered
+   it, 0.5 = half), with `billing.default` for everything else. Billed = list x
+   multiplier, derived at display time like the rest - so raising a multiplier
+   re-prices history too. The shipped config has `openai-codex: 0`.
 
 Edit any of these in `impact/config.json`, or live in the fpi-impact
 "Assumptions" tab (saves back to the same file; "revert to defaults" restores
@@ -72,17 +83,26 @@ sessions in `~/codetools/friendly-harness` and in every
 
 `fpi-impact` renders a d3.js dashboard on `127.0.0.1:8731`:
 
-- **Scope** - with `?project=<name>` (set by `fpi-impact <project>`) every
-  tab covers only that repo; the topbar chip names the scope and links back to
-  the whole dataset.
+- **Scope** - pick a project on the Totals page, or pass one to
+  `fpi-impact <project>` (`?project=<name>`); every tab then covers only that
+  repo. The topbar chip names the scope and clears it.
 - **Totals** - stat cards and real-world comparisons for the selected period
   (all time, year, month, week, last day, or custom calendar range).
 - **Labels** - models read as their short name (`deepseek-v4-flash-0731`),
   projects as the directory below `~/codetools` (`friendly-harness`,
   `friendly-harness-fix-subagents` for a worktree). Home and code-root parents
   never appear; the two historical worktree layouts fold into one label.
-- **Trend** - one metric toggle (cost / carbon / electricity / water) drives
-  the usage breakout flow, usage over time, and by-project / by-model bars.
+- **Trend** - one metric toggle (cost / tokens / carbon / electricity / water)
+  drives the usage breakout flow, usage over time, and by-project / by-model
+  bars. The cost view also toggles between **list price** (pi's per-token
+  price) and **billed** (after the billing multipliers); the tooltip shows
+  both.
+- **Flow sizing** - `readable` (default) inflates small sections so their
+  labels fit inside; `accurate` gives every section its true share and widens
+  the gaps between sections just enough for each label, so a label always sits
+  centred on its own section and never collides with the next. Ink is chosen
+  per section color, and gutter labels wrap narrow and carry a halo so they
+  stay readable over ribbons.
 - **Assumptions** - edit assumptions with live recompute; saves to
   `config.json`, "revert to defaults" restores `defaults.json` and keeps your
   location.

@@ -230,9 +230,10 @@ The `fpi` launchers warn past 75% and refuse to start past 100% unless
 
 `fpi-impact` converts token usage into electricity, carbon, and water, and
 opens a local dashboard at `http://127.0.0.1:8731`. `fpi-impact <project>`
-scopes it to one repo, worktrees included. Raw rows live in
-`impact/ledger.jsonl` (gitignored). Assumptions are editable in
-`impact/config.json`. Full math and sources: `impact/README.md`.
+scopes it to one repo, worktrees included - or pick the project from the
+Totals page instead. Raw rows live in `impact/ledger.jsonl` (gitignored).
+Assumptions are editable in `impact/config.json` or the Assumptions tab. Full
+math and sources: `impact/README.md`.
 
 ### Add-ons
 

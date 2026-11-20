@@ -54,6 +54,20 @@ function dataRange(rows) {
   return days.length ? { min: days[0], max: days[days.length - 1] } : { min: null, max: null };
 }
 
+/** Projects present in the dataset, with row counts, for the in-app scope
+ *  picker. Unscoped and undated on purpose: the list should not shrink or
+ *  reorder as the user filters. */
+function projectList(rows) {
+  const counts = new Map();
+  for (const r of rows) {
+    const name = core.projectKey(r);
+    counts.set(name, (counts.get(name) || 0) + 1);
+  }
+  return [...counts.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .map(([name, rows]) => ({ name, rows }));
+}
+
 /** Keep only rows whose day falls in [from, to] (inclusive, both optional). */
 function withinRange(rows, from, to) {
   if (!from && !to) return rows;
@@ -110,6 +124,7 @@ createServer(async (req, res) => {
       return send(res, 200, JSON.stringify({
         generated: new Date().toISOString(),
         project: { name: project || null, rows: scoped.length },
+        projects: projectList(all),
         config,
         defaults: core.loadDefaults(),
         states: core.loadStates(),

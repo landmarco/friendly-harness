@@ -66,6 +66,7 @@ export function loadDefaults() {
     models: {},
     prefixProfiles: { "openai-codex": "frontier_model", ollama: "efficient_small_model", local: "efficient_small_model" },
     defaultProfile: "frontier_model",
+    billing: { default: 1, models: {} },
     water: { typicalLPerKWh: 1.5, minLPerKWh: 0.7, maxLPerKWh: 3.0 },
     games: {
       "cyberpunk-2077": { label: "Cyberpunk 2077 (high-end rig, 4K ultra)", watts: 400 },
@@ -163,7 +164,7 @@ export function computeImpact(row, config = loadConfig()) {
 }
 
 export function sumImpact(rows, config = loadConfig()) {
-  const out = { tokens: 0, kwh: 0, kgCO2e: 0, waterL: 0, cost: 0, calls: rows.length };
+  const out = { tokens: 0, kwh: 0, kgCO2e: 0, waterL: 0, cost: 0, costBilled: 0, calls: rows.length };
   for (const r of rows) {
     const imp = computeImpact(r, config);
     out.tokens += imp.tokens;
@@ -171,8 +172,35 @@ export function sumImpact(rows, config = loadConfig()) {
     out.kgCO2e += imp.kgCO2e.typical;
     out.waterL += imp.waterL.typical;
     out.cost += r.cost || 0;
+    out.costBilled += rowCost(r, config).billed;
   }
   return out;
+}
+
+// ---------------------------------------------------------------------------
+// Billing: list price vs what you actually pay after credits and plans
+// ---------------------------------------------------------------------------
+
+/** Multiplier applied to a row's list price: 1 = pay full price, 0 = fully
+ *  covered by credits or a subscription, 0.5 = half. Exact `provider/model`
+ *  key first, then the bare provider, then `billing.default`. */
+export function billingFactor(row, config = loadConfig()) {
+  const billing = config.billing || {};
+  const models = billing.models || {};
+  const key = modelKey(row.model, row.provider);
+  const provider = String(row.provider || key.split("/")[0]);
+  for (const k of [key, provider]) {
+    const v = Number(models[k]);
+    if (models[k] !== undefined && Number.isFinite(v)) return v;
+  }
+  const fallback = Number(billing.default);
+  return Number.isFinite(fallback) ? fallback : 1;
+}
+
+/** A row is stored with pi's list price. Billed = list x billing factor. */
+export function rowCost(row, config = loadConfig()) {
+  const list = Number(row.cost) || 0;
+  return { list, billed: list * billingFactor(row, config) };
 }
 
 /** Gaming equivalence: hours of each game equal to the given kWh. */
@@ -510,7 +538,7 @@ function cli() {
     const t = sumImpact(monthRows, config);
     console.log(JSON.stringify({
       month,
-      calls: t.calls, cost: t.cost, tokens: t.tokens,
+      calls: t.calls, cost: t.cost, costBilled: t.costBilled, tokens: t.tokens,
       kwh: t.kwh, kgCO2e: t.kgCO2e, waterL: t.waterL,
     }));
     return;
@@ -526,6 +554,8 @@ export function assumptionsList() {
     "Water: datacenter operational cooling, 1.5 L/kWh typical (range 0.7-3), industry WUE reports (e.g. Google ~1.1 L/kWh).",
     "Excluded: model training, embodied hardware, networking, storage, user devices, and upstream electricity-generation water.",
     "Gaming comparisons assume a high-end gaming PC at the wall (Cyberpunk 2077 ~400 W, Control ~300 W); watts are editable in impact/config.json.",
+    "Cost is not derived here: each row stores the figure pi computed from the model's published per-token price (input, output, cache read/write, long-context tiers), taken from pi's built-in model table or .pi/agent/models.json. That is list price - what the same tokens would cost without credits.",
+    "Billed cost applies config.json:billing - a multiplier per provider or `provider/model` (1 = full list price, 0 = fully covered by credits or a subscription, 0.5 = half), with billing.default for everything else. Set openai-codex to 0 while its credits last if you want the dashboard to show what you actually paid.",
     "All factors are editable: impact/config.json on disk, or the Assumptions tab of fpi-impact (saves back to the same file).",
   ];
 }
