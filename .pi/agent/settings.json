@@ -1,5 +1,5 @@
 {
-  "lastChangelogVersion": "1.5.2",
+  "lastChangelogVersion": "1.6.0",
   "defaultProvider": "openrouter",
   "defaultModel": "deepseek/deepseek-v4.1-flash-1017",
   "defaultThinkingLevel": "high",
@@ -14,7 +14,9 @@
     "npm:pi-mcp-adapter",
     "npm:pi-subagents-j0k3r"
   ],
-  "extensions": ["-builtin:mcp"],
+  "extensions": [
+    "-builtin:mcp"
+  ],
   "enabledModels": [
     "openrouter/openrouter/free",
     "openrouter/z-ai/glm-5.2",

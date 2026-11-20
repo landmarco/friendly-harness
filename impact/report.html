@@ -23,6 +23,7 @@
         --water: #5fd9c9;
         --kwh: #e3c56c;
         --cost: #9fe07a;
+        --tokens: #9ea7ff;
         --game: #cd9dff;
         --warn: #ff6b6b;
         --mono: ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas,
@@ -183,6 +184,10 @@
         border: 1px solid var(--border);
         border-radius: 7px;
       }
+      /* an inline-flex rule beats the UA [hidden] rule, so hide explicitly */
+      .metric-tabs[hidden] {
+        display: none;
+      }
       .mbtn {
         background: transparent;
         border: 0;
@@ -309,8 +314,35 @@
         font-size: 13px;
         font-weight: 600;
         /* chunks are pastel, so the darker ink reads better here than the
-           brighter chart ink used by the axes */
+           brighter chart ink used by the axes; the exact ink is chosen per
+           chunk from its fill luminance */
         fill: var(--faint);
+      }
+      /* label that moved out of a too-small chunk: light ink with a halo, so
+         it stays readable over ribbons and the page background */
+      .flow-outside {
+        font-family: var(--sans);
+        font-size: 12px;
+        font-weight: 600;
+        fill: var(--chart-ink);
+        paint-order: stroke;
+        stroke: var(--panel);
+        stroke-width: 3px;
+        stroke-linejoin: round;
+      }
+      .flow-leader {
+        stroke: var(--border-strong);
+        stroke-width: 1;
+      }
+      .panel-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 12px;
+      }
+      .panel-head h2 {
+        margin-bottom: 0;
       }
       .eq-unit {
         color: var(--faint);
@@ -620,6 +652,10 @@
 
     <div class="section active" id="sec-totals">
       <div class="panel rangebar">
+        <label class="lbl" for="project-select">Project</label>
+        <select id="project-select">
+          <option value="">All projects</option>
+        </select>
         <label class="lbl" for="range-select">Period</label>
         <select id="range-select">
           <option value="all">All time</option>
@@ -650,19 +686,34 @@
         <span class="lbl">Metric</span>
         <span class="metric-tabs" id="metric-tabs">
           <button class="mbtn active" data-metric="cost">cost</button>
+          <button class="mbtn" data-metric="tokens">tokens</button>
           <button class="mbtn" data-metric="kgCO2e">carbon</button>
           <button class="mbtn" data-metric="kwh">electricity</button>
           <button class="mbtn" data-metric="waterL">water</button>
+        </span>
+        <span class="metric-tabs" id="price-tabs" hidden>
+          <button class="mbtn active" data-price="list">list price</button>
+          <button class="mbtn" data-price="billed">billed</button>
         </span>
         <span class="mono" id="metric-label"></span>
       </div>
 
       <div class="panel">
-        <h2 class="caps">Usage breakout</h2>
+        <div class="panel-head">
+          <h2 class="caps">Usage breakout</h2>
+          <span class="metric-tabs" id="flow-mode">
+            <button class="mbtn active" data-flow="readable">readable</button>
+            <button class="mbtn" data-flow="accurate">accurate</button>
+          </span>
+        </div>
         <div id="flow-chart"></div>
         <div class="hint">
           Total usage, split by model, then by project. Follows the metric
-          toggle above. Hover a node for details.
+          toggle above. <b>Readable</b> inflates small sections so their labels
+          fit inside; <b>accurate</b> sizes every section to its true share,
+          widens the gaps as far as the labels need, and moves labels that no
+          longer fit into the left gutter, centred on their section. Hover a
+          section for details.
         </div>
       </div>
 
@@ -814,6 +865,31 @@
         </div>
       </div>
 
+      <div class="panel">
+        <h2>Billing (list price vs what you paid)</h2>
+        <table class="assumptions">
+          <tr>
+            <th style="width: 260px">Default multiplier</th>
+            <td>
+              <input type="number" step="0.1" min="0" id="billing-default" />
+            </td>
+            <td style="width: 30%">Default: 1 (full list price)</td>
+          </tr>
+        </table>
+        <div class="model-list" id="billing-models"></div>
+        <div class="hint">
+          Multiplier on the list price pi recorded for each row: 1 = you pay
+          full list price, 0 = credits or a subscription covered the whole row,
+          0.5 = half. Rows are stored at list price; billed cost is list x
+          multiplier. Toggle between them in the Trend tab's cost view. Keys
+          match a provider (<code>openai-codex</code>) or one model
+          (<code>provider/model</code>); the more specific key wins.
+        </div>
+        <div class="btn-row">
+          <button class="btn" id="add-billing">Add billing override</button>
+        </div>
+      </div>
+
       <div class="btn-row">
         <button class="btn primary" id="save">Save assumptions</button>
         <button class="btn" id="reset">Revert to defaults</button>
@@ -860,6 +936,7 @@
         kwh: (n) => fmt.num(n, 1) + " kWh",
         co2: (n) => (n < 0.01 ? "<0.01" : fmt.num(n, 2)) + " kg CO2e",
         water: (n) => (n < 0.01 ? "<0.01" : fmt.num(n, 1)) + " L",
+        tokens: (n) => fmt.num(n, 0) + " tokens",
       };
       const palette = [
         "#7fb8ff",
@@ -877,6 +954,15 @@
           unit: "$",
           color: "#b9f27c",
           fmt: (n) => fmt.money(n),
+        },
+        tokens: {
+          label: "Tokens",
+          unit: "tokens",
+          color: "#9ea7ff",
+          fmt: (n) => fmt.tokens(n),
+          // 480M rather than 479,957,224 - the long form overflowed the
+          // left gutter of the y axis
+          axis: (n) => d3.format(".2~s")(n),
         },
         kgCO2e: {
           label: "Carbon",
@@ -898,6 +984,35 @@
         },
       };
       let trendMetric = "cost";
+      let priceMode = "list"; // cost view: "list" or "billed"
+      let flowMode = "readable"; // breakout sizing: "readable" or "accurate"
+
+      /** Totals key for the current view. Only cost has two: pi's list price
+       *  and the billed figure after the config.json billing multipliers. */
+      function priceKey() {
+        return trendMetric === "cost" && priceMode === "billed"
+          ? "costBilled"
+          : trendMetric;
+      }
+
+      /** "showing carbon (CO2e)" - the unit is dropped when it just repeats
+       *  the metric name, as with tokens. */
+      function metricLabelText() {
+        const m = METRICS[trendMetric] || METRICS.cost;
+        const billed = trendMetric === "cost" && priceMode === "billed";
+        const name = billed ? "billed cost" : m.label.toLowerCase();
+        const unit =
+          m.unit.toLowerCase() === m.label.toLowerCase() ? "" : ` (${m.unit})`;
+        return `showing ${name}${unit}`;
+      }
+
+      function syncMetricUI() {
+        d3.select("#metric-label").text(metricLabelText());
+        d3.select("#price-tabs").attr(
+          "hidden",
+          trendMetric === "cost" ? null : true
+        );
+      }
 
       /** One palette color per label, assigned in sorted order so a category
        *  keeps its color when the metric or the ranking changes. */
@@ -929,10 +1044,48 @@
         );
       }
 
-      // ---- project scope (set by `fpi-impact <project>`) -------------------
-      const scope = (
+      // ---- project scope (`fpi-impact <project>`, or the picker below) ------
+      let scope = (
         new URLSearchParams(location.search).get("project") || ""
       ).trim();
+
+      /** Switch scope in place - same query param the launcher uses, so the
+       *  URL stays shareable and a reload keeps the choice. */
+      function applyScope(next) {
+        scope = String(next || "").trim();
+        const url = new URL(location.href);
+        if (scope) url.searchParams.set("project", scope);
+        else url.searchParams.delete("project");
+        history.replaceState(null, "", url);
+        renderScope();
+        fetchData();
+      }
+
+      /** Project picker: one row per project in the whole dataset, with a
+       *  count so names that only look alike stay distinguishable. */
+      function renderProjectSelect() {
+        const list = (state.data && state.data.projects) || [];
+        const sel = d3.select("#project-select");
+        sel.selectAll("option.project").remove();
+        list
+          .slice()
+          .sort((a, b) => a.name.localeCompare(b.name))
+          .forEach((p) => {
+            sel
+              .append("option")
+              .attr("class", "project")
+              .attr("value", p.name)
+              .text(`${p.name} (${p.rows})`);
+          });
+        // a scoped project with no rows yet still has to show in the picker
+        if (scope && !list.some((p) => p.name === scope))
+          sel
+            .append("option")
+            .attr("class", "project")
+            .attr("value", scope)
+            .text(`${scope} (0)`);
+        sel.property("value", scope);
+      }
 
       /** Chip naming the scope, with a link back to the whole dataset. */
       function renderScope() {
@@ -952,7 +1105,11 @@
           .append("a")
           .attr("href", location.pathname)
           .attr("title", "show all projects")
-          .text("×");
+          .text("×")
+          .on("click", function (e) {
+            e.preventDefault();
+            applyScope("");
+          });
       }
 
       // ---- time range (Totals tab) ----------------------------------------
@@ -1052,12 +1209,9 @@
         state.config = structuredClone(state.data.config);
         state.totals = state.data.totals;
         renderScope();
+        renderProjectSelect();
         syncRangeUI();
-        d3.select("#metric-label").text(
-          `showing ${METRICS[trendMetric].label.toLowerCase()} (${
-            METRICS[trendMetric].unit
-          })`
-        );
+        syncMetricUI();
         renderAll();
         setSynced();
       }
@@ -1286,7 +1440,9 @@
                 .text(line)
             );
           });
-        g.append("g").attr("class", "axis").call(d3.axisLeft(y).ticks(5));
+        const yAxis = d3.axisLeft(y).ticks(5);
+        if (m.axis) yAxis.tickFormat(m.axis);
+        g.append("g").attr("class", "axis").call(yAxis);
         g.append("text")
           .attr("class", "axis-title")
           .attr(
@@ -1330,13 +1486,14 @@
             .attr("fill", "var(--dim)")
             .text("No usage yet.");
         const m = METRICS[trendMetric] || METRICS.cost;
+        const k = priceKey();
         const x = d3
           .scaleTime()
           .domain(d3.extent(days, (d) => new Date(d[0])))
           .range([0, chartW]);
         const y = d3
           .scaleLinear()
-          .domain([0, d3.max(days, (d) => d[1][trendMetric]) || 1])
+          .domain([0, d3.max(days, (d) => d[1][k]) || 1])
           .nice()
           .range([chartH, 0]);
         // x axis at the bottom
@@ -1344,7 +1501,9 @@
           .attr("class", "axis")
           .attr("transform", `translate(0, ${chartH})`)
           .call(d3.axisBottom(x).ticks(d3.timeDay.every(1)).ticks(10));
-        g.append("g").attr("class", "axis").call(d3.axisLeft(y).ticks(5));
+        const yAxis = d3.axisLeft(y).ticks(5);
+        if (m.axis) yAxis.tickFormat(m.axis);
+        g.append("g").attr("class", "axis").call(yAxis);
         // y axis units, next to the axis (rotated), same as the bar charts
         g.append("text")
           .attr("class", "axis-title")
@@ -1358,12 +1517,12 @@
           .area()
           .x((d) => x(new Date(d[0])))
           .y0(chartH)
-          .y1((d) => y(d[1][trendMetric] || 0))
+          .y1((d) => y(d[1][k] || 0))
           .curve(d3.curveMonotoneX);
         const line = d3
           .line()
           .x((d) => x(new Date(d[0])))
-          .y((d) => y(d[1][trendMetric] || 0))
+          .y((d) => y(d[1][k] || 0))
           .curve(d3.curveMonotoneX);
         g.append("path")
           .datum(days)
@@ -1381,7 +1540,7 @@
           .data(days)
           .join("circle")
           .attr("cx", (d) => x(new Date(d[0])))
-          .attr("cy", (d) => y(d[1][trendMetric] || 0))
+          .attr("cy", (d) => y(d[1][k] || 0))
           .attr("r", 2.5)
           .attr("fill", m.color)
           .attr("opacity", 0.9)
@@ -1417,14 +1576,20 @@
             focusLine.attr("x1", px).attr("x2", px).style("opacity", 1);
             focusDot
               .attr("cx", px)
-              .attr("cy", y(d[1][trendMetric] || 0))
+              .attr("cy", y(d[1][k] || 0))
               .attr("fill", m.color)
               .style("opacity", 1);
             showTip(
               e,
               `<span class="tt-title">${d[0]}</span>` +
-                `<div class="tt-row"><em>cost</em><b style="color:var(--cost)">${fmt.money(
+                `<div class="tt-row"><em>cost (list)</em><b style="color:var(--cost)">${fmt.money(
                   d[1].cost
+                )}</b></div>` +
+                `<div class="tt-row"><em>cost (billed)</em><b style="color:var(--cost)">${fmt.money(
+                  d[1].costBilled
+                )}</b></div>` +
+                `<div class="tt-row"><em>tokens</em><b style="color:var(--tokens)">${fmt.tokens(
+                  d[1].tokens
                 )}</b></div>` +
                 `<div class="tt-row"><em>electricity</em><b style="color:var(--kwh)">${fmt.kwh(
                   d[1].kwh
@@ -1446,10 +1611,11 @@
 
       function renderModelChart() {
         const m = METRICS[trendMetric];
+        const k = priceKey();
         const byModel = Object.entries(state.totals.byModel).sort(
-          (a, b) => (b[1][trendMetric] || 0) - (a[1][trendMetric] || 0)
+          (a, b) => (b[1][k] || 0) - (a[1][k] || 0)
         );
-        const total = state.totals[trendMetric] || 0;
+        const total = state.totals[k] || 0;
         const labels = modelLabels(byModel.map(([key]) => key));
         // colors come from the full model set (not this metric's ranking), so
         // a model keeps its color and matches its node in the breakout chart
@@ -1457,7 +1623,7 @@
         const entries = byModel.map(([key, t]) => ({
           label: labels.get(key),
           color: modelColors.get(key),
-          value: t[trendMetric] || 0,
+          value: t[k] || 0,
           total,
         }));
         verticalBars(d3.select("#model-chart"), entries, m);
@@ -1465,13 +1631,14 @@
 
       function renderProjectChart() {
         const m = METRICS[trendMetric];
+        const k = priceKey();
         const byProject = Object.entries(state.totals.byProject).sort(
-          (a, b) => (b[1][trendMetric] || 0) - (a[1][trendMetric] || 0)
+          (a, b) => (b[1][k] || 0) - (a[1][k] || 0)
         );
-        const total = state.totals[trendMetric] || 0;
+        const total = state.totals[k] || 0;
         const entries = byProject.map(([label, t]) => ({
           label,
-          value: t[trendMetric] || 0,
+          value: t[k] || 0,
           total,
         }));
         verticalBars(d3.select("#project-chart"), entries, m);
@@ -1506,8 +1673,69 @@
         return lines.length ? lines : [""];
       }
 
+      /** Dark ink on light chunk fills, light ink on dark ones, so a label is
+       *  readable whatever palette color its chunk landed on. */
+      function inkFor(hex) {
+        const m = /^#([0-9a-f]{6})$/i.exec(hex || "");
+        if (!m) return "var(--chart-ink)";
+        const n = parseInt(m[1], 16);
+        const lin = [(n >> 16) & 255, (n >> 8) & 255, n & 255].map((v) => {
+          const s = v / 255;
+          return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+        });
+        const L = 0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2];
+        return L > 0.35 ? "#101014" : "#f2f2f7";
+      }
+
+      /** Accurate-mode column layout. Chunk heights stay proportional to their
+       *  value; the gaps between chunks grow as far as their gutter labels
+       *  need, so every label stays centred on its own chunk and clear of the
+       *  next. Returns the solved column. */
+      function layoutAccurate(col, chartH, grandTotal, gap, topPad, botPad) {
+        const LABEL_GAP = 6;
+        const n = col.length;
+        const gaps = new Array(Math.max(0, n - 1)).fill(gap);
+        const heights = new Array(n).fill(0);
+        const ys = new Array(n).fill(0);
+        let outside = [];
+        const place = () => {
+          const totalGaps = gaps.reduce((s, g) => s + g, 0);
+          const avail = Math.max(1.5 * n, chartH - topPad - botPad - totalGaps);
+          const scale = avail / grandTotal;
+          let y = topPad;
+          for (let i = 0; i < n; i++) {
+            heights[i] = Math.max(1.5, col[i].value * scale);
+            ys[i] = y;
+            y += heights[i] + (gaps[i] ?? 0);
+          }
+          outside = [];
+          for (let i = 0; i < n; i++)
+            if (heights[i] < col[i].insideH + 8) outside.push(i);
+        };
+        place();
+        for (let pass = 0; pass < 8; pass++) {
+          let grown = false;
+          for (let a = 0; a < outside.length - 1; a++) {
+            const i = outside[a],
+              j = outside[a + 1];
+            const ci = ys[i] + heights[i] / 2;
+            const cj = ys[j] + heights[j] / 2;
+            const need = (col[i].gutterH + col[j].gutterH) / 2 + LABEL_GAP;
+            const deficit = need - (cj - ci);
+            if (deficit > 0.5) {
+              gaps[j - 1] += deficit;
+              grown = true;
+            }
+          }
+          if (!grown) break;
+          place();
+        }
+        return { heights, ys, gaps, outside };
+      }
+
       function renderFlow() {
         const m = METRICS[trendMetric];
+        const k = priceKey();
         const bmp = state.totals.byModelProject || {};
         const MAX_PROJECTS = 6;
         const models = Object.entries(bmp)
@@ -1515,7 +1743,7 @@
             let entries = Object.entries(projects)
               .map(([p, t]) => ({
                 name: p.split("/").pop() || p,
-                value: t[trendMetric] || 0,
+                value: t[k] || 0,
               }))
               .filter((e) => e.value > 0)
               .sort((a, b) => b.value - a.value);
@@ -1589,9 +1817,10 @@
         });
 
         // ---- layout -----------------------------------------------------------
-        // Each column scales to its own total height; totals only grow going
-        // right (col 0 < col 1 < col 2). Chunks are sized relative only to
-        // other chunks in the SAME column, and always big enough for text.
+        // Readable (default): each column scales to its own total height,
+        // growing right, and every chunk is at least big enough for its text.
+        // Accurate: every chunk's height is its true share of the canvas, and
+        // a label that no longer fits moves into the gutter to its left.
         const colTotal = [300, 380, 480]; // per-column heights, growing right
         const colW = [130, 200, 280]; // chunks get wider going right
         const GAP = 6;
@@ -1601,17 +1830,51 @@
         for (const c of [0, 1, 2]) {
           for (const n of nodes.filter((nn) => nn.col === c)) {
             n.lines = wrapText(n.name, colW[c] - 18);
+            // gutter labels wrap narrower so they stay inside the gutter
+            // instead of running over the previous column's chunks
+            n.gutterLines = wrapText(n.name, Math.min(colW[c] - 18, 150));
+            n.insideH = (n.lines.length + 1) * 17; // name lines + % line
+            n.gutterH = (n.gutterLines.length + 1) * 15;
             n.minH = n.lines.length * 17 + 24; // name lines + % line + pad
           }
         }
-        const estHeights = [0, 1, 2].map((c) => {
-          const col = nodes.filter((n) => n.col === c);
-          const mins = col.reduce((s, n) => s + n.minH, 0);
-          const gaps = GAP * (col.length - 1);
-          return Math.max(colTotal[c], mins + gaps);
-        });
-        let height = Math.max(...estHeights) + 40;
-        height = Math.max(height, 340);
+        let height;
+        let accurateLayout = null; // per-column solve, accurate mode only
+        if (flowMode === "readable") {
+          const estHeights = [0, 1, 2].map((c) => {
+            const col = nodes.filter((n) => n.col === c);
+            const mins = col.reduce((s, n) => s + n.minH, 0);
+            const gaps = GAP * (col.length - 1);
+            return Math.max(colTotal[c], mins + gaps);
+          });
+          height = Math.max(Math.max(...estHeights) + 40, 340);
+        } else {
+          // size the canvas for the worst case: every chunk in a column too
+          // small to hold its text, so all of them need gutter room. The real
+          // layout then needs less, and the extra height becomes chunk height.
+          const RESERVE = 18; // keeps the first and last label off the edges
+          let est = 480;
+          for (const c of [0, 1, 2]) {
+            const col = nodes.filter((n) => n.col === c);
+            est = Math.max(
+              est,
+              2 * RESERVE +
+                col.reduce((s, n) => s + n.gutterH, 0) +
+                4 * Math.max(0, col.length - 1)
+            );
+          }
+          accurateLayout = [0, 1, 2].map((c) =>
+            layoutAccurate(
+              nodes.filter((n) => n.col === c),
+              est,
+              grandTotal,
+              GAP,
+              RESERVE,
+              RESERVE
+            )
+          );
+          height = Math.max(est + 24, 340);
+        }
         const { g, chartW, chartH } = baseSvg(
           d3.select("#flow-chart"),
           width,
@@ -1629,22 +1892,31 @@
         }
         for (const c of [0, 1, 2]) {
           const col = nodes.filter((n) => n.col === c);
-          const sum = col.reduce((s, n) => s + n.value, 0) || 1;
-          const mins = col.reduce((s, n) => s + n.minH, 0);
-          const gaps = GAP * (col.length - 1);
-          // column height honors min text; never smaller than the left column
-          const target = Math.max(
-            colTotal[c],
-            (c > 0 ? colTotal[c - 1] : 0) + 10,
-            mins + gaps
-          );
-          colTotal[c] = target;
-          const scale = (target - mins - gaps) / sum;
           let y = 0;
-          for (const n of col) {
-            n.h = Math.max(n.minH + n.value * scale, n.minH);
-            n.y = y;
-            y += n.h + GAP;
+          if (flowMode === "readable") {
+            const sum = col.reduce((s, n) => s + n.value, 0) || 1;
+            const mins = col.reduce((s, n) => s + n.minH, 0);
+            const gaps = GAP * (col.length - 1);
+            // column height honors min text; never smaller than the left one
+            const target = Math.max(
+              colTotal[c],
+              (c > 0 ? colTotal[c - 1] : 0) + 10,
+              mins + gaps
+            );
+            colTotal[c] = target;
+            const scale = (target - mins - gaps) / sum;
+            for (const n of col) {
+              n.h = Math.max(n.minH + n.value * scale, n.minH);
+              n.y = y;
+              y += n.h + GAP;
+            }
+          } else {
+            const l = accurateLayout[c];
+            for (let i = 0; i < col.length; i++) {
+              col[i].h = l.heights[i];
+              col[i].y = l.ys[i];
+              col[i].inside = !l.outside.includes(i);
+            }
           }
         }
 
@@ -1737,29 +2009,49 @@
             );
           })
           .on("mouseleave", hideTip);
-        // wrapped labels inside chunks
-        g.append("g")
-          .selectAll("flow-label")
+        // labels: inside the chunk when its text fits, otherwise in the left
+        // gutter, always centred on the chunk it belongs to. Ink is picked per
+        // fill so names stay readable on every pastel chunk, and the gutter
+        // labels carry a halo for the ribbons behind them.
+        const outside = (n) => n.inside === false;
+        const centreY = (n) => n.y + n.h / 2;
+        const labelLayer = g.append("g");
+        labelLayer
+          .selectAll("line")
+          .data(nodes.filter(outside))
+          .join("line")
+          .attr("class", "flow-leader")
+          .attr("x1", (n) => colX[n.col] - 6)
+          .attr("x2", (n) => colX[n.col])
+          .attr("y1", centreY)
+          .attr("y2", centreY);
+        labelLayer
+          .selectAll("text")
           .data(nodes)
           .join("text")
-          .attr("class", "flow-name")
-          .attr("text-anchor", "middle")
-          .attr("font-size", fontPx)
+          .attr("class", (n) => (outside(n) ? "flow-outside" : "flow-name"))
+          .attr("text-anchor", (n) => (outside(n) ? "end" : "middle"))
+          .attr("font-size", (n) => (outside(n) ? 12 : fontPx))
           .each(function (n) {
             const el = d3.select(this);
-            const cx = colX[n.col] + colW[n.col] / 2;
-            const totalLines = n.lines.length + 1;
-            const blockH = totalLines * 17;
-            const ty = n.y + Math.max(0, (n.h - blockH) / 2) + 12;
-            n.lines.forEach((ln, i) => {
+            const out = outside(n);
+            if (!out) el.attr("fill", inkFor(n.color));
+            const lines = out ? n.gutterLines : n.lines;
+            const blockH = out ? n.gutterH : n.insideH;
+            const lineH = out ? 15 : 17;
+            const cx = out ? colX[n.col] - 8 : colX[n.col] + colW[n.col] / 2;
+            const ty = out
+              ? centreY(n) - blockH / 2 + 12
+              : n.y + Math.max(0, (n.h - blockH) / 2) + 12;
+            lines.forEach((ln, i) => {
               el.append("tspan")
                 .attr("x", cx)
-                .attr("y", ty + i * 17)
+                .attr("y", ty + i * lineH)
                 .text(ln);
             });
             el.append("tspan")
               .attr("x", cx)
-              .attr("y", ty + n.lines.length * 17)
+              .attr("y", ty + lines.length * lineH)
               .attr("font-size", 11)
               .attr("font-weight", 500)
               .attr("fill-opacity", 0.8)
@@ -1980,6 +2272,55 @@
               });
           });
 
+        // billing: multiplier from list price to what you actually paid
+        const billing = (cfg.billing = cfg.billing || {
+          default: 1,
+          models: {},
+        });
+        billing.models = billing.models || {};
+        const billDefault = Number.isFinite(Number(billing.default))
+          ? Number(billing.default)
+          : 1;
+        d3.select("#billing-default").property("value", billDefault);
+        bindInput(
+          "#billing-default",
+          () => billDefault,
+          (v) => {
+            const n = parseFloat(v);
+            if (Number.isFinite(n)) billing.default = n;
+          }
+        );
+        const bill = d3.select("#billing-models");
+        bill.selectAll(".model-item").remove();
+        const billKeys = [
+          ...new Set([
+            ...Object.keys(billing.models),
+            ...Object.keys(state.totals.byModel || {}),
+          ]),
+        ].sort();
+        bill
+          .selectAll(".model-item")
+          .data(billKeys)
+          .join("div")
+          .attr("class", "model-item")
+          .each(function (key) {
+            const el = d3.select(this);
+            el.append("div").attr("class", "mname").text(key);
+            el.append("input")
+              .attr("type", "number")
+              .attr("step", "0.1")
+              .attr("min", "0")
+              .attr("placeholder", String(billDefault))
+              .property("value", billing.models[key] ?? "")
+              .on("input", function () {
+                const n = parseFloat(this.value);
+                if (Number.isFinite(n)) billing.models[key] = n;
+                else delete billing.models[key];
+                d3.select(this).attr("placeholder", String(billing.default));
+                recompute().catch(() => {});
+              });
+          });
+
         d3.select("#assumptions-text").text(state.data.assumptions.join("\n"));
       }
 
@@ -2107,15 +2448,33 @@
         d3.selectAll("#metric-tabs .mbtn").classed("active", false);
         d3.select(this).classed("active", true);
         trendMetric = d3.select(this).attr("data-metric");
-        d3.select("#metric-label").text(
-          `showing ${METRICS[trendMetric].label.toLowerCase()} (${
-            METRICS[trendMetric].unit
-          })`
-        );
+        syncMetricUI();
         renderFlow();
         renderTrend();
         renderProjectChart();
         renderModelChart();
+      });
+
+      d3.selectAll("#price-tabs .mbtn").on("click", function () {
+        d3.selectAll("#price-tabs .mbtn").classed("active", false);
+        d3.select(this).classed("active", true);
+        priceMode = d3.select(this).attr("data-price");
+        syncMetricUI();
+        renderFlow();
+        renderTrend();
+        renderProjectChart();
+        renderModelChart();
+      });
+
+      d3.selectAll("#flow-mode .mbtn").on("click", function () {
+        d3.selectAll("#flow-mode .mbtn").classed("active", false);
+        d3.select(this).classed("active", true);
+        flowMode = d3.select(this).attr("data-flow");
+        renderFlow();
+      });
+
+      d3.select("#project-select").on("change", function () {
+        applyScope(this.value);
       });
 
       d3.select("#range-select").on("change", function () {
@@ -2160,6 +2519,24 @@
         if (!id) return;
         state.config.models = state.config.models || {};
         state.config.models[id] = "balanced_model";
+        renderAssumptions();
+      });
+      d3.select("#add-billing").on("click", () => {
+        const id = prompt(
+          "Provider or model id (e.g. openai-codex or openrouter/deepseek/deepseek-v4.1-flash-1017):"
+        );
+        if (!id) return;
+        const v = prompt(
+          "Multiplier on list price (0 = fully covered by credits, 1 = full price):",
+          "0"
+        );
+        if (v === null) return;
+        state.config.billing = state.config.billing || {
+          default: 1,
+          models: {},
+        };
+        state.config.billing.models = state.config.billing.models || {};
+        state.config.billing.models[id] = parseFloat(v) || 0;
         renderAssumptions();
       });
 
