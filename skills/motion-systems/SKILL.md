@@ -4,12 +4,10 @@ description: Use when designing or implementing motion for web interfaces, inclu
 metadata:
   category: Design & Frontend
   pairs-with:
-  - skill: motion-choreography-patterns
-    reason: Sibling skill - this covers mechanism selection and tokens; choreography covers multi-element sequencing
-  - skill: user-interface
-    reason: UX decides what state changes need motion; this skill decides how they move
-  - skill: realness-design
-    reason: Animation decisions for realness projects (realness defers entirely to this skill); native HTML attributes (open, disabled) drive the state changes CSS transitions respond to
+    - skill: motion-choreography-patterns
+      reason: Sibling skill - this covers mechanism selection and tokens; choreography covers multi-element sequencing
+    - skill: user-interface
+      reason: UX decides what state changes need motion; this skill decides how they move
 ---
 
 # CSS Motion Systems
@@ -83,20 +81,32 @@ Keep point counts intentional (typically 4-8 points). Prefer readable named toke
 
 ```css
 :root {
-  --ease-linear-enter-soft: linear(0, 0.08 12%, 0.34 36%, 0.74 66%, 0.93 84%, 1);
+  --ease-linear-enter-soft: linear(
+    0,
+    0.08 12%,
+    0.34 36%,
+    0.74 66%,
+    0.93 84%,
+    1
+  );
   --ease-linear-exit-crisp: linear(0, 0.3 18%, 0.72 58%, 0.9 78%, 1);
-  --ease-linear-settle-gentle: linear(0, 0.06 10%, 0.31 32%, 0.72 62%, 0.92 82%, 1);
+  --ease-linear-settle-gentle: linear(
+    0,
+    0.06 10%,
+    0.31 32%,
+    0.72 62%,
+    0.92 82%,
+    1
+  );
   --ease-linear-emphasis-pop: linear(0, 0.38 20%, 0.88 62%, 1);
 }
 
 .chip-enter {
-  transition: opacity 180ms var(--ease-linear-enter-soft),
-    translate 180ms var(--ease-linear-enter-soft);
+  transition: opacity 180ms var(--ease-linear-enter-soft), translate 180ms var(--ease-linear-enter-soft);
 }
 
 .panel-exit {
-  transition: opacity 150ms var(--ease-linear-exit-crisp),
-    transform 150ms var(--ease-linear-exit-crisp);
+  transition: opacity 150ms var(--ease-linear-exit-crisp), transform 150ms var(--ease-linear-exit-crisp);
 }
 
 .shared-element-settle {

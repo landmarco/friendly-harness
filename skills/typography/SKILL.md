@@ -1,25 +1,23 @@
 ---
 name: typography
-description: Typography advisor for client projects - font selection, type scale, fluid sizing, baseline rhythm, and performance. Draws on the realness design system as a proven reference while adapting to each client's voice and context. Use for font pairing, scale decisions, web font implementation, and typographic hierarchy. Not for logo design, icon fonts, or general CSS unrelated to type.
+description: Typography advisor for client projects - font selection, type scale, fluid sizing, baseline rhythm, and performance. Adapts proven patterns to each client's voice and context. Use for font pairing, scale decisions, web font implementation, and typographic hierarchy. Not for logo design, icon fonts, or general CSS unrelated to type.
 allowed-tools: Read,Write,Edit,WebFetch
 metadata:
   category: Design & Creative
   pairs-with:
-  - skill: realness-design
-    reason: Settled type decisions for realness projects; proven patterns to draw from for client work. Semantic elements carry typographic meaning before CSS touches them
-  - skill: user-interface
-    reason: Readability and clarity decisions
+    - skill: user-interface
+      reason: Readability and clarity decisions
   tags:
-  - typography
-  - fonts
-  - type-scale
-  - fluid-type
-  - client-work
+    - typography
+    - fonts
+    - type-scale
+    - fluid-type
+    - client-work
 ---
 
 # Typography
 
-Apply proven typographic thinking to each project's unique voice. The realness design system is the trusted elder - draw from its decisions as validated patterns, not as rules to copy.
+Apply proven typographic thinking to each project's unique voice. Treat validated patterns as reference points, not rules to copy.
 
 ## Starting a client project
 
@@ -34,31 +32,31 @@ Then build the system in this order: baseline unit -> modular scale -> fluid ran
 
 ## The baseline unit
 
-Everything derives from one unit (mechanics: realness-design, Spacing). Pick the value for the client's density:
+Everything derives from one spacing unit. Pick the value for the client's density:
 
 - `1.25rem` - tighter, denser, more corporate
-- `1.333rem` - realness default, balanced editorial
+- `1.333rem` - balanced editorial
 - `1.5rem` - looser, more generous, consumer-friendly
 
 ## Modular scale
 
-| Ratio | Name | Character |
-|-------|------|-----------|
-| 1.125 | Major Second | Quiet, functional, dense UI |
-| 1.200 | Minor Third | Balanced, versatile, most web content |
-| 1.250 | Major Third | Clear hierarchy, marketing |
-| 1.333 | Perfect Fourth | Strong, editorial |
-| 1.414 | Augmented Fourth | Dramatic, expressive |
+| Ratio | Name             | Character                             |
+| ----- | ---------------- | ------------------------------------- |
+| 1.125 | Major Second     | Quiet, functional, dense UI           |
+| 1.200 | Minor Third      | Balanced, versatile, most web content |
+| 1.250 | Major Third      | Clear hierarchy, marketing            |
+| 1.333 | Perfect Fourth   | Strong, editorial                     |
+| 1.414 | Augmented Fourth | Dramatic, expressive                  |
 
-A **fluid range** scales the ratio itself with the viewport (realness: 1.25 -> 1.414) - quiet hierarchy on mobile, dramatic on wide screens, no breakpoints. Pick a range for the client's voice: a law firm might stay fixed at 1.2; a creative studio might range 1.333 -> 1.618.
+A **fluid range** scales the ratio itself with the viewport (e.g. 1.25 -> 1.414) - quiet hierarchy on mobile, dramatic on wide screens, no breakpoints. Pick a range for the client's voice: a law firm might stay fixed at 1.2; a creative studio might range 1.333 -> 1.618.
 
 ## Fluid type
 
-Implementation (the `clamp()` slope math and its bound-order gotcha) lives in realness-design's [TYPE_SCALE_RECIPE.md](../realness-design/references/TYPE_SCALE_RECIPE.md). The judgment call this skill owns: slope-intercept `calc()` when you want the breakpoints legible in the source, `clamp()` shorthand when you're eyeballing.
+Implement fluid type with `clamp()` or slope-intercept `calc()`. The judgment call: `calc()` when you want the breakpoints legible in the source, `clamp()` when you are eyeballing it. Watch the bound order - the preferred value must sit between the min and max or the clamp silently picks one end.
 
 ## Heading treatment
 
-Realness's defaults (weight 300, tight tracking, line-height 1 - see realness-design) are a strong client starting point: light + tight works because the scale provides the size contrast. If the client's brand is bolder, adjust weight before scale - 300 to 400 is usually enough.
+Weight 300 with tight tracking and line-height 1 is a strong starting point: light + tight works because the scale provides the size contrast. If the client's brand is bolder, adjust weight before scale - 300 to 400 is usually enough.
 
 ## Font selection
 
@@ -79,8 +77,8 @@ Realness uses Lato (Humanist Sans) - warm, readable at weight 300, distinct at w
 
 ```css
 @font-face {
-  font-family: 'ClientFont';
-  src: url('/fonts/ClientFont-Light.woff2') format('woff2');
+  font-family: "ClientFont";
+  src: url("/fonts/ClientFont-Light.woff2") format("woff2");
   font-weight: 300;
   font-display: swap;
 }
@@ -88,22 +86,30 @@ Realness uses Lato (Humanist Sans) - warm, readable at weight 300, distinct at w
 
 ## Performance
 
-| Tier | Total font budget | Files |
-|------|-------------------|-------|
-| Fast (Core Web Vitals) | < 100KB | 2-3 woff2 |
-| Balanced | 100-200KB | 4-5 woff2 |
-| Rich | 200-400KB | 6-8 woff2 |
+| Tier                   | Total font budget | Files     |
+| ---------------------- | ----------------- | --------- |
+| Fast (Core Web Vitals) | < 100KB           | 2-3 woff2 |
+| Balanced               | 100-200KB         | 4-5 woff2 |
+| Rich                   | 200-400KB         | 6-8 woff2 |
 
 Preload the primary weight:
+
 ```html
-<link rel="preload" as="font" type="font/woff2" href="/fonts/primary.woff2" crossorigin>
+<link
+  rel="preload"
+  as="font"
+  type="font/woff2"
+  href="/fonts/primary.woff2"
+  crossorigin
+/>
 ```
 
 Match fallback x-height to prevent CLS on swap:
+
 ```css
 @font-face {
-  font-family: 'ClientFont';
-  src: url('/fonts/ClientFont.woff2') format('woff2');
+  font-family: "ClientFont";
+  src: url("/fonts/ClientFont.woff2") format("woff2");
   size-adjust: 107%; /* match Arial x-height */
 }
 ```
@@ -129,5 +135,4 @@ Match fallback x-height to prevent CLS on swap:
 
 ## Integration
 
-- **realness-design**: owns the shared method (rhythm, fluid scale, element-first markup) and realness's settled values. This skill re-picks the values per client; element choice is type choice (`<time>`, `<blockquote>`, headings carry meaning before CSS).
-- **user-interface**: readability and clarity when type and UX intersect.
+- **user-interface**: readability and clarity when type and UX intersect. Element choice is type choice: `<time>`, `<blockquote>`, and headings carry meaning before CSS touches them.

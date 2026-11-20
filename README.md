@@ -126,7 +126,7 @@ fpi ~/codetools/some-existing-repo
 Pass pi options after `--`:
 
 ```bash
-fpi my-app -- --model openai-codex/gpt-6.1-sol
+fpi my-app -- --model openai-codex/gpt-6.2-sol
 fpi my-app -- -p "summarize the open TODOs"
 ```
 
@@ -195,9 +195,9 @@ imports a session here, copying `skills/` into it, and pi loads that copy first
 because it scans `.agents/skills` before `--skill` paths. The exclusion keeps
 `skills/` authoritative.
 
-Some skills in this repo are examples from the author's projects
-(`realness-design`, `test-coverage`, `vuetify-to-semantic`, `zoom-to-ableton`,
-`vault`). Delete or replace them when they do not fit your work.
+Skills are generic by default. `vault` is the one personal workflow left: it
+reads an Anotht Obsidian vault through `ANOTHT_VAULT`, which is not configured
+on this machine. Delete it if you do not plan to set one up.
 
 ### Model routing and reasoning
 

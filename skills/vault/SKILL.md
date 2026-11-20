@@ -1,9 +1,15 @@
 ---
 name: vault
-description: Read, search, and maintain the Anotht Obsidian vault (PARA-structured personal knowledge base covering projects, interests, and reference material). Use when the user asks about their notes, interests, or wants links categorized, feeds rebuilt, or raindrop imports cleaned up.
+description: Not configured on this machine yet. Read, search, and maintain the Anotht Obsidian vault (PARA-structured personal knowledge base covering projects, interests, and reference material). Use when the user asks about their notes, interests, or wants links categorized, feeds rebuilt, or raindrop imports cleaned up.
 ---
 
 # Vault
+
+**Status: not set up.** `ANOTHT_VAULT` is unset and the default `~/Anotht`
+does not exist, so nothing below can run against a real vault. Treat this as a
+template: the workflow is written down, but it is not connected until a vault
+exists and `ANOTHT_VAULT` points at it. Do not try to read or rebuild feeds
+until then.
 
 The Anotht vault is a PARA-structured Obsidian brain.
 

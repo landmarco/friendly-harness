@@ -4,10 +4,8 @@ description: Designs or reviews user interfaces that are self-evident, low-frict
 metadata:
   category: Design & UX
   pairs-with:
-  - skill: realness-design
-    reason: Native elements carry affordance before CSS; boolean attributes are state CSS reads directly
-  - skill: motion-systems
-    reason: This skill decides what changes; motion-systems decides how it moves
+    - skill: motion-systems
+      reason: This skill decides what changes; motion-systems decides how it moves
   tags:
     - ux
     - ui
@@ -56,8 +54,8 @@ interfaces where detailed explanation is the product.
 
 ## Integration
 
-- **realness-design**: the right element is its own affordance - `<details>`
-  discloses, `<dialog>` is modal; boolean attributes (`open`, `disabled`)
-  are state CSS reads without JS.
 - **motion-systems**: what changes is decided here; how it moves is decided
   there.
+- The right element is its own affordance: `<details>` discloses, `<dialog>`
+  is modal, and boolean attributes (`open`, `disabled`) are state CSS reads
+  without JS.
