@@ -14,16 +14,31 @@
  * the right approach. The planning-only instruction is dropped from the system
  * prompt on handoff so the cheap model treats exploration as already done.
  *
- * /prewalk                          - arm with current model, default target
+ * /prewalk                          - arm with smart model (sol), cheap target (deepseek)
  * /prewalk <target>                  - arm with current model, custom target
  * /prewalk <smart> <target>          - arm with custom smart + target, switch to smart
  * /prewalk off                       - disarm
  *
- * Default target: deepseek/deepseek-v4-flash
+ * Model refs accept a short alias: sol, deepseek, smart, cheap.
+ * Defaults: smart = sol, target = deepseek
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent"
 
-const DEFAULT_TARGET = "deepseek/deepseek-v4-flash"
+// Short names so nobody has to type provider/model-id at the gate.
+const MODEL_ALIASES: Record<string, string> = {
+  sol: "openai-codex/gpt-6.2-sol",
+  smart: "openai-codex/gpt-6.2-sol",
+  deepseek: "openrouter/deepseek/deepseek-v4.1-flash-1017",
+  cheap: "openrouter/deepseek/deepseek-v4.1-flash-1017",
+}
+
+const DEFAULT_SMART = "sol"
+const DEFAULT_TARGET = "deepseek"
+
+function resolveModelRef(ref: string): string {
+  const key = ref.trim().toLowerCase()
+  return MODEL_ALIASES[key] ?? ref.trim()
+}
 
 const TODO_PATTERN = /(?:^|[\\/])(?:TODO|todo|TASK|task|PLAN|plan|CHECKLIST|checklist)\.(?:md|txt)$/
 
@@ -59,7 +74,7 @@ export default function (pi: ExtensionAPI) {
       return
     }
 
-    const [provider, ...rest] = targetModelId.split("/")
+    const [provider, ...rest] = resolveModelRef(targetModelId).split("/")
     const modelId = rest.join("/")
     const targetModel = ctx.modelRegistry.find(provider, modelId)
 
@@ -119,6 +134,7 @@ export default function (pi: ExtensionAPI) {
 
       const parts = args ? args.trim().split(/\s+/) : []
       let smartModelId: string | null = null
+      targetModelId = DEFAULT_TARGET
 
       if (parts.length >= 2) {
         // /prewalk <smart> <target>
@@ -127,11 +143,13 @@ export default function (pi: ExtensionAPI) {
       } else if (parts.length === 1) {
         // /prewalk <target>
         targetModelId = parts[0]
+      } else {
+        // /prewalk — smart starts on sol, cheap finishes on deepseek
+        smartModelId = DEFAULT_SMART
       }
-      // else: /prewalk — keep defaults, smart = current
 
       // resolve target model
-      const [tp, ...tr] = targetModelId.split("/")
+      const [tp, ...tr] = resolveModelRef(targetModelId).split("/")
       const targetModel = ctx.modelRegistry.find(tp, tr.join("/"))
       if (!targetModel) {
         ctx.ui.notify(`Prewalk: target "${targetModelId}" not found in model catalog`, "error")
@@ -140,7 +158,7 @@ export default function (pi: ExtensionAPI) {
 
       // resolve and switch to smart model if specified
       if (smartModelId) {
-        const [sp, ...sr] = smartModelId.split("/")
+        const [sp, ...sr] = resolveModelRef(smartModelId).split("/")
         const smartModel = ctx.modelRegistry.find(sp, sr.join("/"))
         if (!smartModel) {
           ctx.ui.notify(`Prewalk: smart model "${smartModelId}" not found in model catalog`, "error")

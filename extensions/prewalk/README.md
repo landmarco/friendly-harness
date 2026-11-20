@@ -8,12 +8,33 @@ mid-context to finish, avoiding the double-read cost of plan-only handoffs.
 
 ## Usage
 
-| Command                     | What it does                                                          |
-| --------------------------- | --------------------------------------------------------------------- |
-| `/prewalk`                  | Arm with current model, default target (`deepseek/deepseek-v4-flash`) |
-| `/prewalk <target>`         | Arm with current model, custom target                                 |
-| `/prewalk <smart> <target>` | Arm with custom smart + target, switch to smart                       |
-| `/prewalk off`              | Disarm                                                                |
+| Command                     | What it does                                    |
+| --------------------------- | ----------------------------------------------- |
+| `/prewalk`                  | Arm with `sol` smart, `deepseek` target         |
+| `/prewalk <target>`         | Arm with current model, custom target           |
+| `/prewalk <smart> <target>` | Arm with custom smart + target, switch to smart |
+| `/prewalk off`              | Disarm                                          |
+
+### Aliases
+
+`/prewalk` accepts short names, so you never type a provider path at the
+gate:
+
+| Alias      | Model                                          |
+| ---------- | ---------------------------------------------- |
+| `sol`      | `openai-codex/gpt-6.2-sol`                     |
+| `smart`    | same as `sol`                                  |
+| `deepseek` | `openrouter/deepseek/deepseek-v4.1-flash-1017` |
+| `cheap`    | same as `deepseek`                             |
+
+```
+/prewalk                  # sol starts, deepseek finishes
+/prewalk sol deepseek     # same thing, spelled out
+/prewalk deepseek         # stay on the current smart model, cheap finishes
+/prewalk off              # disarm
+```
+
+Full provider/model paths still work and are passed through unchanged.
 
 ## How it works
 

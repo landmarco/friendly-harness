@@ -26,9 +26,8 @@ Before reviewing, familiarize yourself with Apollo's Rust best practices. Read A
 - [Chapter 4 - Error Handling](references/chapter_04.md): Result vs panic, thiserror vs anyhow, error hierarchies
 - [Chapter 5 - Automated Testing](references/chapter_05.md): Test naming, one assertion per test, snapshot testing
 
-Trimmed to the chapters that apply here. The only Rust in this workspace is
-`work/realness/tracer`, a ~300-line WASM `cdylib` with no threads, no `unsafe`,
-no trait objects, and no published rustdoc API. Apollo's chapters 6-9 (generics
+Trimmed to the chapters that apply to a small WASM `cdylib`: no threads, no
+`unsafe`, no trait objects, and no published rustdoc API. Apollo's chapters 6-9 (generics
 and dispatch, type state, comments vs documentation, pointers and `Send`/`Sync`)
 were dropped as inapplicable. Pull them from the
 [upstream handbook](https://github.com/apollographql/rust-best-practices) if a
@@ -37,27 +36,32 @@ future crate needs them.
 ## Quick Reference
 
 ### Borrowing & Ownership
+
 - Prefer `&T` over `.clone()` unless ownership transfer is required
 - Use `&str` over `String`, `&[T]` over `Vec<T>` in function parameters
 - Small `Copy` types (24 bytes or less) can be passed by value
 - Use `Cow<'_, T>` when ownership is ambiguous
 
 ### Error Handling
+
 - Return `Result<T, E>` for fallible operations; avoid `panic!` in production
 - Never use `unwrap()`/`expect()` outside tests
 - Use `thiserror` for library errors, `anyhow` for binaries only
 - Prefer `?` operator over match chains for error propagation
 
 ### Performance
+
 - Always benchmark with `--release` flag
 - Run `cargo clippy -- -D clippy::perf` for performance hints
 - Avoid cloning in loops; use `.iter()` instead of `.into_iter()` for Copy types
 - Prefer iterators over manual loops; avoid intermediate `.collect()` calls
 
 ### Linting
+
 Run regularly: `cargo clippy --all-targets --all-features --locked -- -D warnings`
 
 Key lints to watch:
+
 - `redundant_clone` - unnecessary cloning
 - `large_enum_variant` - oversized variants (consider boxing)
 - `needless_collect` - premature collection
@@ -65,11 +69,13 @@ Key lints to watch:
 Use `#[expect(clippy::lint)]` over `#[allow(...)]` with justification comment.
 
 ### Testing
+
 - Name tests descriptively: `process_should_return_error_when_input_empty()`
 - One assertion per test when possible
 - Use doc tests (`///`) for public API examples
 - Consider `cargo insta` for snapshot testing generated output
 
 ### Comments
-- `//` comments explain *why* (safety, workarounds, design rationale)
+
+- `//` comments explain _why_ (safety, workarounds, design rationale)
 - Every `TODO` needs a linked issue: `// TODO(#42): ...`

@@ -1,6 +1,6 @@
 ---
 name: consultant
-description: One-off design consultant on the gpt-6.1-sol Codex model. Used to get a second opinion on architecture and database decisions. Not for code review or planning sessions.
+description: One-off design consultant on the gpt-6.2-sol Codex model. Used to get a second opinion on architecture and database decisions. Not for code review or planning sessions.
 tools:
   - read
   - bash

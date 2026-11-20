@@ -1,0 +1,86 @@
+#!/usr/bin/env bash
+set -uo pipefail
+
+# Friendly Harness - pre-flight check for the Flask + SvelteKit take-home stack.
+#
+#   stack-check            verify toolchain, venv, and browser
+#   stack-check --warm     also warm pip/npm caches for a timed session
+#
+# Exit 0 when every required check passes. Each check prints PASS/FAIL plus the
+# version it found, so a failure names the missing tool instead of a guess.
+
+fail=0
+ok() { printf 'PASS  %-22s %s\n' "$1" "$2"; }
+no() { printf 'FAIL  %-22s %s\n' "$1" "$2"; fail=1; }
+
+check_cmd() { # name, command, version-args
+    local name="$1" cmd="$2"; shift 2
+    if command -v "$cmd" >/dev/null 2>&1; then
+        ok "$name" "$("$@" 2>&1 | head -1)"
+    else
+        no "$name" "not on PATH"
+    fi
+}
+
+echo "Friendly Harness stack check"
+echo
+
+# --- required tools ---------------------------------------------------------
+check_cmd python3 python3 python3 -V
+check_cmd node node node -v
+check_cmd npm npm npm -v
+check_cmd sqlite3 sqlite3 sqlite3 --version
+check_cmd git git git --version
+
+# --- python: interpreter, venv, and a real Flask install --------------------
+if command -v python3 >/dev/null 2>&1; then
+    ok "python3 path" "$(python3 -c 'import sys; print(sys.executable)')"
+    tmp="$(mktemp -d)"
+    if python3 -m venv "$tmp/venv" >/dev/null 2>&1; then
+        ok "venv create" "ok in $tmp/venv"
+        if "$tmp/venv/bin/pip" install -q flask sqlalchemy alembic >/dev/null 2>&1; then
+            ok "pip install flask" "$("$tmp/venv/bin/python" -W ignore -c 'from importlib.metadata import version; print("flask", version("flask"), "| sqlalchemy", version("sqlalchemy"), "| alembic", version("alembic"))')"
+        else
+            no "pip install flask" "install failed (network or wheel problem)"
+        fi
+    else
+        no "venv create" "python3 -m venv failed"
+    fi
+    rm -rf "$tmp"
+fi
+
+# --- browser: the verifier's eyes ------------------------------------------
+if command -v agent-browser >/dev/null 2>&1; then
+    if agent-browser open "data:text/html,<h1>ok</h1>" >/dev/null 2>&1 \
+        && agent-browser read 2>/dev/null | grep -q ok; then
+        ok "agent-browser" "$(agent-browser --version 2>&1 | head -1) drives a page"
+    else
+        no "agent-browser" "installed but could not open a page"
+    fi
+    agent-browser close >/dev/null 2>&1
+else
+    no "agent-browser" "not on PATH"
+fi
+
+# --- optional cache warm ---------------------------------------------------
+if [[ "${1:-}" == "--warm" ]]; then
+    echo
+    echo "Warming caches"
+    tmp="$(mktemp -d)"
+    python3 -m venv "$tmp/venv" >/dev/null 2>&1
+    "$tmp/venv/bin/pip" download -q --only-binary=:all: -d "$tmp/wheels" \
+        flask flask-cors sqlalchemy alembic pytest hypothesis >/dev/null 2>&1 \
+        && ok "pip cache" "$(ls "$tmp/wheels" | wc -l) wheels cached"
+    ( cd "$tmp" && npm init -y >/dev/null 2>&1 \
+        && npm install --no-audit --no-fund svelte @sveltejs/kit @sveltejs/adapter-node \
+            vite tailwindcss @tailwindcss/vite >/dev/null 2>&1 ) \
+        && ok "npm cache" "sveltekit + tailwind packages cached"
+    rm -rf "$tmp"
+fi
+
+echo
+if (( fail )); then
+    echo "NOT READY - fix the FAIL lines above."
+    exit 1
+fi
+echo "READY"
