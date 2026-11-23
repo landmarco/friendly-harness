@@ -110,18 +110,20 @@ fpi ~/codetools/some-existing-repo
 
 ## Daily use
 
-| Command                             | What it does                                                                       |
-| ----------------------------------- | ---------------------------------------------------------------------------------- |
-| `fpi`                               | Supervised session in the current directory.                                       |
-| `fpi <project>`                     | Supervised session in a project under `~/codetools`, or at an absolute path.       |
-| `fpi --new <name-or-path>`          | Create a project, seed `AGENTS.md`, commit, and open a session.                    |
-| `fpi --worktree <project> <task>`   | Isolated worktree on branch `pi/<task>`.                                           |
-| `fpi --attach [<project> [<task>]]` | Join a running session, show a menu, or create one.                                |
-| `fpi --list`                        | List running harness sessions.                                                     |
-| `fpi-done --list`                   | List worktrees.                                                                    |
-| `fpi-done <project> <task>`         | Remove one worktree.                                                               |
-| `fpi-cost`                          | OpenRouter spend for the month, plus impact totals.                                |
-| `fpi-impact [project]`              | Local browser dashboard for cost, energy, carbon, and water (optionally one repo). |
+| Command                                 | What it does                                                                       |
+| --------------------------------------- | ---------------------------------------------------------------------------------- |
+| `fpi`                                   | Supervised session in the current directory.                                       |
+| `fpi <project>`                         | Supervised session in a project under `~/codetools`, or at an absolute path.       |
+| `fpi --new <name-or-path>`              | Create a project, seed `AGENTS.md`, commit, and open a session.                    |
+| `fpi --worktree <project> <task>`       | Isolated worktree on branch `pi/<task>`.                                           |
+| `fpi --resume [<project>]`              | Pick a saved conversation (newest first) and continue it.                          |
+| `fpi --resume <project> --session <id>` | Continue one conversation by id prefix, no menu.                                   |
+| `fpi --attach [<project> [<task>]]`     | Join a running session, show a menu, or create one.                                |
+| `fpi --list`                            | List running harness sessions.                                                     |
+| `fpi-done --list`                       | List worktrees.                                                                    |
+| `fpi-done <project> <task>`             | Remove one worktree.                                                               |
+| `fpi-cost`                              | OpenRouter spend for the month, plus impact totals.                                |
+| `fpi-impact [project]`                  | Local browser dashboard for cost, energy, carbon, and water (optionally one repo). |
 
 Pass pi options after `--`:
 
@@ -139,8 +141,17 @@ The legacy aliases still work: `fpi-romp <project> <task>` is
   changes and interactive review.
 - A **worktree session** creates `~/codetools/.worktrees/<project>/<task>` on a
   separate branch. Use it for larger changes so your checkout stays clean.
+- `fpi --resume` lists the project's saved conversations newest first and
+  reopens the one you pick in its own attachable tmux session. Choosing the
+  newest transcript while that project's supervised session is running just
+  attaches to it, so one conversation never gets two writers.
 - `fpi-done` refuses to remove a worktree with uncommitted changes unless you
   pass `--force`. Add `--delete-branch` to remove the branch when it is merged.
+- `fpi-export <project|session-id>` writes a markdown transcript of what you
+  typed and what friendlai answered, one section per session. `--list` prints
+  session ids with dates and opening prompts, `--turn N` picks a single turn,
+  and `--out FILE` writes to a file. Thinking, tool calls, and tool results
+  stay out of the export.
 
 Detach from tmux with `Ctrl+B`, then `D`. The session keeps running. Re-attach
 from another terminal, or from a phone over SSH. See

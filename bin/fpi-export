@@ -1,0 +1,229 @@
+#!/usr/bin/env python3
+"""Export pi session transcripts as readable markdown.
+
+    fpi-export <project>              all sessions for a project
+    fpi-export <project> --turn 3     a single conversation turn
+    fpi-export <session-id>           one session (full or unique prefix)
+    fpi-export <file.jsonl>           one session file directly
+    fpi-export ... --out FILE         write to FILE (default: stdout)
+
+Keeps the text you typed and what friendlai answered. Thinking blocks, tool
+calls, and tool results are dropped, so the export reads like a conversation.
+Session files live in .pi/agent/sessions/ in this harness.
+"""
+
+import argparse
+import datetime
+import glob
+import json
+import os
+import re
+import sys
+
+HARNESS_ROOT = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+SESSIONS = os.path.join(HARNESS_ROOT, ".pi", "agent", "sessions")
+
+def project_dir(cwd):
+    """Session directory pi uses for a working directory."""
+    return "--" + cwd.strip("/\\").replace("/", "-").replace("\\", "-") + "--"
+
+
+def find_project_sessions(target):
+    if os.path.isdir(target):
+        target = os.path.realpath(target)
+    else:
+        for base in (os.path.expanduser("~"), os.environ.get("CODE_ROOT", "")):
+            if base and os.path.isdir(os.path.join(base, target)):
+                target = os.path.join(base, target)
+                break
+    name = project_dir(target)
+    path = os.path.join(SESSIONS, name)
+    if os.path.isdir(path):
+        return sorted(glob.glob(os.path.join(path, "*.jsonl")))
+    # Fall back to any session dir whose name hints at the project.
+    slug = target.strip("/").split("/")[-1]
+    for d in glob.glob(os.path.join(SESSIONS, "--*--")):
+        if os.path.basename(d).strip("-").endswith(slug):
+            return sorted(glob.glob(os.path.join(d, "*.jsonl")))
+    return []
+
+
+def find_session_file(target):
+    if os.path.isfile(target):
+        return [os.path.realpath(target)]
+    stem = os.path.basename(target).removesuffix(".jsonl")
+    hits = [p for p in glob.glob(os.path.join(SESSIONS, "*", "*.jsonl")) if stem in os.path.basename(p)]
+    if len(hits) == 1:
+        return hits
+    if not hits:
+        return []
+    raise SystemExit(f"fpi-export: '{target}' matches {len(hits)} sessions; use a longer id")
+
+
+def resolve(target):
+    files = find_session_file(target)
+    if not files:
+        files = find_project_sessions(target)
+    if not files:
+        raise SystemExit(f"fpi-export: no sessions for '{target}'")
+    return files
+
+
+def stamp(at, fmt="%Y-%m-%d %H:%M"):
+    if not at:
+        return "?"
+    if isinstance(at, str):
+        return datetime.datetime.fromisoformat(at.removesuffix("Z")).strftime(fmt)
+    return datetime.datetime.fromtimestamp(at / 1000, datetime.timezone.utc).strftime(fmt)
+
+
+SKILL_BLOCK = re.compile(r'<skill name="([^"]+)"[^>]*>.*?</skill>', re.DOTALL)
+
+
+def user_text(message):
+    """What the human typed, with injected skill bodies collapsed to a label."""
+    text = "\n\n".join(b.get("text", "") for t, b in blocks(message) if t == "text")
+    names = SKILL_BLOCK.findall(text)
+    text = SKILL_BLOCK.sub("", text).strip()
+    if names and not text:
+        return f"*(ran the {' + '.join(names)} skill)*"
+    if names:
+        return text + f"\n\n*(with the {' + '.join(names)} skill loaded)*"
+    return text
+
+
+def blocks(message):
+    content = message.get("content")
+    if isinstance(content, str):
+        return [("text", content)] if content.strip() else []
+    if not isinstance(content, list):
+        return []
+    return [(b.get("type"), b) for b in content if isinstance(b, dict)]
+
+
+def read_session(path, turn_filter=None):
+    """Return (meta, turns). Each turn: dict(user, at, replies, notices)."""
+    meta = {"path": path, "id": os.path.basename(path).split("_")[-1].removesuffix(".jsonl")}
+    turns = []
+    current = None
+    for line in open(path, encoding="utf-8"):
+        line = line.strip()
+        if not line:
+            continue
+        entry = json.loads(line)
+        kind = entry.get("type")
+        if kind == "session":
+            meta.update(
+                id=entry.get("id"),
+                cwd=entry.get("cwd"),
+                started=entry.get("timestamp"),
+            )
+        elif kind == "model_change":
+            meta.setdefault("models", []).append(entry.get("modelId"))
+        elif kind == "custom_message":
+            if current is not None:
+                current["notices"].append(entry.get("content", ""))
+        elif kind == "message":
+            message = entry.get("message") or {}
+            role = message.get("role")
+            at = entry.get("timestamp")
+            if role == "user":
+                text = user_text(message)
+                if not text.strip():
+                    continue
+                current = {"at": at, "user": text, "replies": [], "notices": []}
+                turns.append(current)
+            elif role == "assistant" and current is not None:
+                text = "\n\n".join(b.get("text", "") for t, b in blocks(message) if t == "text")
+                if text.strip():
+                    current["replies"].append((at, text))
+    if turn_filter is not None:
+        turns = [turns[i] for i in turn_filter if 0 <= i < len(turns)]
+    return meta, turns
+
+
+def listing(files, tsv=False):
+    """One line per session: id, start, turns, first prompt.
+
+    --tsv prints start<TAB>id<TAB>turns<TAB>first prompt for bin/fpi's menu.
+    """
+    out = []
+    for index, path in enumerate(files, 1):
+        meta, turns = read_session(path)
+        first = turns[0]["user"].split("\n")[0].strip() if turns else "(empty)"
+        started = stamp(meta.get("started") or "")
+        if tsv:
+            clean = " ".join(first.split())[:70]
+            out.append(f"{started}\t{meta.get('id', '?')}\t{len(turns)}\t{clean}")
+        else:
+            out.append(
+                f"{index}. {meta.get('id', '?')}  {started} UTC"
+                f"  {len(turns)} turns  {first[:70]}"
+            )
+    return "\n".join(out) + "\n"
+
+
+def render(files, turn_filter=None):
+    out = []
+    for index, path in enumerate(files, 1):
+        meta, turns = read_session(path, turn_filter)
+        if index == 1:
+            project = os.path.basename(meta.get("cwd") or os.path.dirname(path))
+            out.append(f"# Sessions: {project}")
+            out.append("")
+        out.append(f"## Session {index} - {meta.get('id', '?')}")
+        out.append("")
+        if meta.get("cwd"):
+            out.append(f"- Project: `{meta['cwd']}`")
+        if meta.get("started"):
+            out.append(f"- Started: {stamp(meta['started'])} UTC")
+        if meta.get("models"):
+            out.append(f"- Models: {', '.join(f'`{m}`' for m in dict.fromkeys(meta['models']))}")
+        out.append(f"- Turns: {len(turns)}")
+        out.append(f"- Source: `{os.path.relpath(path, HARNESS_ROOT)}`")
+        out.append("")
+        for n, turn in enumerate(turns, 1):
+            out.append(f"### Turn {n} - {stamp(turn['at'])}")
+            out.append("")
+            out.append("**You**")
+            out.append("")
+            out.append(turn["user"].strip())
+            out.append("")
+            for notice in turn["notices"]:
+                out.append("> Harness notice: " + notice.strip().replace("\n", "\n> "))
+                out.append("")
+            for at, text in turn["replies"]:
+                out.append(f"**friendlai** - {stamp(at)}")
+                out.append("")
+                out.append(text.strip())
+                out.append("")
+            if not turn["replies"]:
+                out.append("*(no reply in this session)*")
+                out.append("")
+    return "\n".join(out).rstrip() + "\n"
+
+
+def main():
+    ap = argparse.ArgumentParser(description="Export pi sessions as markdown.")
+    ap.add_argument("target", help="project path/name, session id, or .jsonl file")
+    ap.add_argument("--turn", type=int, action="append", help="1-based turn, repeatable")
+    ap.add_argument("--list", "-l", action="store_true", help="list sessions instead of exporting")
+    ap.add_argument("--tsv", action="store_true", help="with --list: machine-readable fields")
+    ap.add_argument("--out", "-o", help="write here instead of stdout")
+    args = ap.parse_args()
+
+    files = resolve(args.target)
+    if args.list:
+        sys.stdout.write(listing(files, args.tsv))
+        return
+    md = render(files, [t - 1 for t in args.turn] if args.turn else None)
+    if args.out:
+        with open(args.out, "w", encoding="utf-8") as fh:
+            fh.write(md)
+        print(f"{args.out}: {len(files)} session(s), {md.count(chr(10))} lines", file=sys.stderr)
+    else:
+        sys.stdout.write(md)
+
+
+if __name__ == "__main__":
+    main()
