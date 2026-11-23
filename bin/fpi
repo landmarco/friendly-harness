@@ -5,6 +5,7 @@ set -euo pipefail
 #
 #   fpi [PROJECT] [-- pi-options...]       supervised session in your checkout
 #   fpi --worktree PROJECT TASK [-- pi...] isolated worktree session
+#   fpi --resume [PROJECT] [--session ID]  continue a saved conversation
 #   fpi --attach [PROJECT [TASK]]          join one, menu, or create
 #   fpi --list                             show running Friendly Harness sessions
 #   fpi --help
@@ -38,6 +39,12 @@ Usage:
   fpi --worktree PROJECT TASK [-- pi options...]
       Isolated worktree session on branch pi/<task>. Resumes an existing
       worktree/session for the same project+task instead of failing.
+
+  fpi --resume [PROJECT] [--session ID] [-- pi options...]
+      Continue an earlier conversation for PROJECT (default: the current
+      directory). Shows that project's saved sessions, newest first, and
+      asks which one. --session takes an id (or unique prefix) and skips
+      the menu. Opens in its own attachable tmux session.
 
   fpi --attach [PROJECT [TASK]]
       Attach to a running Friendly Harness session. With PROJECT [TASK],
@@ -304,6 +311,125 @@ fpi_attach() {
     fi
 }
 
+# --- resume: pick a saved conversation and continue it ----------------------
+# The session store is the source of truth, so the menu comes from
+# fpi-export --list --tsv rather than from a name index that could drift.
+fpi_resume() {
+    local project="" want="" arg
+    local -a rest=()
+    while [[ $# -gt 0 ]]; do
+        arg="$1"
+        shift
+        case "$arg" in
+            --) rest+=("$@"); break ;;
+            --session)
+                [[ $# -gt 0 ]] || { echo "fpi: --session needs an id" >&2; exit 1; }
+                want="$1"; shift
+                ;;
+            --session=*) want="${arg#*=}" ;;
+            --force) ;;   # accepted for old habits; nothing to force today
+            -*)
+                echo "fpi: unknown --resume option: $arg" >&2
+                exit 1
+                ;;
+            *)
+                if [[ -z "$project" ]]; then project="$arg"; else rest+=("$arg"); fi
+                ;;
+        esac
+    done
+
+    project="$(fh_resolve_project "${project:-$PWD}")" || exit 1
+    local label="${project#"$CODE_ROOT"/}"
+
+    local rows
+    rows="$("$HARNESS_ROOT/bin/fpi-export" "$project" --list --tsv)" || exit 1
+    [[ -n "$rows" ]] || { echo "No saved sessions for $label." >&2; exit 1; }
+
+    # Newest first: the first line of the export is the oldest session.
+    local newest
+    newest="$(printf '%s\n' "$rows" | tail -1 | cut -f2)"
+    rows="$(printf '%s\n' "$rows" | awk '{ a[NR]=$0 } END { for (i=NR; i>0; i--) print a[i] }')"
+
+    if [[ -z "$want" ]]; then
+        echo "Sessions for $label (newest first):"
+        local i=0 started id turns first
+        while IFS=$'\t' read -r started id turns first; do
+            i=$((i + 1))
+            printf '  %2d)  %s UTC  %3s turns  %s\n' "$i" "$started" "$turns" "$first"
+        done <<<"$rows"
+        local total="$i"
+        if [[ ! -t 0 ]]; then
+            echo >&2
+            echo "Not a terminal. Pick one with --session <id prefix>." >&2
+            exit 1
+        fi
+        local choice
+        read -rp "Choose [1-$total, Enter for newest, q to quit]: " choice
+        case "$choice" in
+            q|Q) exit 0 ;;
+            "") want="$newest" ;;
+            *[!0-9]*) want="$choice" ;;
+            *)
+                choice=$((10#$choice))
+                if (( choice < 1 || choice > total )); then
+                    echo "fpi: no session number $choice" >&2
+                    exit 1
+                fi
+                want="$(printf '%s\n' "$rows" | sed -n "${choice}p" | cut -f2)"
+                ;;
+        esac
+    fi
+
+    # Resolve exactly, then by unique prefix/substring.
+    local id
+    id="$(printf '%s\n' "$rows" | cut -f2 | grep -Fx -- "$want" || true)"
+    if [[ -z "$id" ]]; then
+        id="$(printf '%s\n' "$rows" | cut -f2 | grep -F -- "$want" || true)"
+        if [[ "$(printf '%s\n' "$id" | wc -l)" -gt 1 ]]; then
+            echo "fpi: '$want' matches several sessions:" >&2
+            printf '%s\n' "$id" | sed 's/^/  /' >&2
+            exit 1
+        fi
+    fi
+    [[ -n "$id" ]] || { echo "fpi: no session matching '$want' in $label" >&2; exit 1; }
+
+    local pkey id8 session joined live
+    pkey="$(fh_project_key "$project")"
+    id8="${id:0:8}"
+
+    if fh_have_tmux; then
+        # Already resumed this one: join it instead of opening a second writer.
+        joined="$(fh_tmux_find_by_metadata resume "$pkey" "$id8" | head -1)"
+        if [[ -n "$joined" ]]; then
+            echo "Friendly Harness: already resuming $id8; attaching."
+            fh_tmux_attach "$joined"
+        fi
+        # The supervised session for a project owns its newest transcript. If
+        # that is the one chosen, attaching is the correct resume.
+        live="$(fh_tmux_find_by_metadata supervised "$pkey" | head -1)"
+        if [[ -n "$live" && "$id" == "$newest" ]]; then
+            echo "Friendly Harness: that conversation is open in the live session; attaching."
+            fh_tmux_attach "$live"
+        fi
+    fi
+
+    fh_budget_gate
+    if fh_have_tmux; then
+        session="$(fh_session_id supervised "$pkey")-r-$id8"
+        local create_cmd
+        create_cmd="$(printf '%q ' "$LAUNCHER" --_run-in-session "$project" resume \
+            --session "$id" ${rest[@]+"${rest[@]}"})"
+        fh_tmux_create "$session" "$project" "$create_cmd"
+        fh_tmux_set_marker "$session" \
+            kind friendly-harness version 1 mode resume \
+            project "$project" project_key "$pkey" task_slug "$id8" pi_session "$id"
+        echo "Friendly Harness: resuming $id8 as '$session'."
+        fh_tmux_attach "$session"
+    else
+        fh_run_direct "$project" resume --session "$id" ${rest[@]+"${rest[@]}"}
+    fi
+}
+
 # --- CLI dispatch ------------------------------------------------------------
 case "${1:-}" in
     --worktree|-w|--romp|-r)
@@ -319,6 +445,10 @@ case "${1:-}" in
         project="$1"; shift
         [[ "${1:-}" == "--" ]] && shift
         fpi_new "$project" "$@"
+        ;;
+    --resume)
+        shift
+        fpi_resume "$@"
         ;;
     --attach|-a)
         shift

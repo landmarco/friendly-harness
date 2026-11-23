@@ -165,7 +165,8 @@ fh_tmux_list_harness_sessions() {
 }
 
 # Print the session name(s) matching MODE + PROJECT_KEY (+ TASK_SLUG for
-# worktrees). Empty when none. Used to re-join marked sessions whose name may
+# worktrees and resumed sessions, where TASK_SLUG carries the pi session's
+# short id). Empty when none. Used to re-join marked sessions whose name may
 # predate the current naming, and to catch ambiguity.
 fh_tmux_find_by_metadata() {
     local mode="$1" pkey="$2" tslug="${3:-}"
@@ -178,7 +179,9 @@ fh_tmux_find_by_metadata() {
         p="$(fh_tmux_read_marker "$s" project_key)"
         t="$(fh_tmux_read_marker "$s" task_slug)"
         [[ "$m" == "$mode" && "$p" == "$pkey" ]] || continue
-        if [[ "$mode" == worktree ]]; then [[ "$t" == "$tslug" ]] || continue; fi
+        case "$mode" in
+            worktree|resume) [[ "$t" == "$tslug" ]] || continue ;;
+        esac
         printf '%s\n' "$s"
     done <<<"$names"
 }
